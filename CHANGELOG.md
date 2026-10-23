@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.2](https://github.com/rejmann/php-namespace-refactor.nvim/compare/v1.0.1...v1.0.2) (2026-10-23)
+
+
+### 📚 Documentation
+
+* use grn in the rename mapping examples ([b4f8e9f](https://github.com/rejmann/php-namespace-refactor.nvim/commit/b4f8e9fecec0de9621f5ca1728f62dfe38e526af))
+* use grn in the rename mapping examples ([90570c8](https://github.com/rejmann/php-namespace-refactor.nvim/commit/90570c8a576ba878e626c95bb3d121f474f535cd))
+
 ## [1.0.1](https://github.com/rejmann/php-namespace-refactor.nvim/compare/v1.0.0...v1.0.1) (2026-10-23)
 
 
