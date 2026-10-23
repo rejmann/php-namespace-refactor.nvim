@@ -273,6 +273,9 @@ describe('multi_file_reference_updater', function()
       }, '\n'),
     })
     local consumer = root .. '/src/Controller/RenamedClassController.php'
+    -- The consumer shares the class's namespace, so the import remover would
+    -- drop the (redundant) renamed import; the TS suite stubbed it out too.
+    config.setup({ remove_unused_imports = false })
 
     updater.execute({
       old_namespace = 'App\\Controller\\RenamedClass',

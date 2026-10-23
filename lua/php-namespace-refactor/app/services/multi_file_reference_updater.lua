@@ -10,6 +10,7 @@ local config = require('php-namespace-refactor.config')
 local edit = require('php-namespace-refactor.infra.edit')
 local files = require('php-namespace-refactor.infra.files')
 local fs = require('php-namespace-refactor.infra.fs')
+local import_remover = require('php-namespace-refactor.app.services.import_remover')
 local path = require('php-namespace-refactor.domain.path')
 local patterns = require('php-namespace-refactor.domain.php.patterns')
 local property_rename = require('php-namespace-refactor.app.operations.property_rename')
@@ -175,6 +176,7 @@ function M.execute(opts)
   for file, err in pairs(result.errors) do
     vim.notify(('php-namespace-refactor: could not update %s: %s'):format(file, err), vim.log.levels.WARN)
   end
+  import_remover.execute(opts.new_path)
 
   return vim.list_extend(affected, same_directory)
 end
