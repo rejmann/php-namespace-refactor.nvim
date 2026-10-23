@@ -14,7 +14,27 @@ end
 
 ---Subcommands of :PhpNamespaceRefactor, registered as each feature lands.
 ---@type table<string, php_namespace_refactor.Subcommand>
-M.subcommands = {}
+M.subcommands = {
+  move = {
+    impl = function(args)
+      require('php-namespace-refactor.app.move').command(args)
+    end,
+    complete = function(arg_lead)
+      return require('php-namespace-refactor.app.move').complete(arg_lead)
+    end,
+  },
+}
+
+---Moves a PHP file or a directory and refactors the project for it:
+---namespaces, class names, references and imports.
+---@param old string
+---@param new string
+---@param opts? php_namespace_refactor.MoveOpts
+---@return boolean ok
+---@return string? err
+function M.move(old, new, opts)
+  return require('php-namespace-refactor.app.move').move(old, new, opts)
+end
 
 ---Entry point of the :PhpNamespaceRefactor user command.
 ---@param opts table Options passed by nvim_create_user_command
