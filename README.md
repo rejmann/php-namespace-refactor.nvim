@@ -66,16 +66,18 @@ vim.pack.add({
 | From Lua | `require('php-namespace-refactor').move(old, new)` / `.rename()` |
 | Check the setup | `:checkhealth php-namespace-refactor` |
 
-The plugin defines no mappings. To rename with `<F2>` in PHP buffers:
+The plugin defines no mappings. Map `<Plug>(PhpNamespaceRefactorRename)` to the key you prefer in PHP buffers, e.g. `<leader>rn`:
 
 ```lua
 vim.api.nvim_create_autocmd('FileType', {
   pattern = 'php',
   callback = function(args)
-    vim.keymap.set('n', '<F2>', '<Plug>(PhpNamespaceRefactorRename)', { buffer = args.buf })
+    vim.keymap.set('n', '<leader>rn', '<Plug>(PhpNamespaceRefactorRename)', { buffer = args.buf })
   end,
 })
 ```
+
+`grn` is Neovim's LSP rename (`vim.lsp.buf.rename()`), handled by your PHP language server (intelephense, phpactor, ...), not by this plugin: the file isn't renamed or moved to the new namespace's directory by it.
 
 Full documentation: `:help php-namespace-refactor`.
 
@@ -124,7 +126,7 @@ Neovim has no multi-file undo. Every buffer touched by a refactor gets the whole
 | `phpNamespaceRefactor.editFilesInBackground` | `edit_files_in_background` |
 | `phpNamespaceRefactor.renameProperties` (`{ "renameMismatchedNames": false }`) | `rename_properties` (`{ rename_mismatched_names = false }`) |
 
-Dragging files in the VS Code Explorer becomes a move in a supported file explorer (or `:PhpNamespaceRefactor move`), and the F2 command becomes `<Plug>(PhpNamespaceRefactorRename)`.
+Dragging files in the VS Code Explorer becomes a move in a supported file explorer (or `:PhpNamespaceRefactor move`), and the F2 rename becomes `<Plug>(PhpNamespaceRefactorRename)` (mapped to a key of your choice).
 
 ## Documentation
 

@@ -160,23 +160,30 @@ The plugin defines no mappings.
 <Plug>(PhpNamespaceRefactorRename)
     Normal mode. Calls |php-namespace-refactor.rename()|.
 
-To use <F2> in PHP buffers, like the VS Code extension did: >lua
+Map it to the key you prefer in PHP buffers, e.g. `<leader>rn`: >lua
 
     vim.api.nvim_create_autocmd('FileType', {
       pattern = 'php',
       callback = function(args)
-        vim.keymap.set('n', '<F2>', '<Plug>(PhpNamespaceRefactorRename)', {
-          buffer = args.buf,
-        })
+        vim.keymap.set(
+          'n',
+          '<leader>rn',
+          '<Plug>(PhpNamespaceRefactorRename)',
+          { buffer = args.buf }
+        )
       end,
     })
 <
 or in `after/ftplugin/php.lua`: >lua
 
-    vim.keymap.set('n', '<F2>', '<Plug>(PhpNamespaceRefactorRename)', {
+    vim.keymap.set('n', '<leader>rn', '<Plug>(PhpNamespaceRefactorRename)', {
       buffer = true,
     })
 <
+Note that `grn` is the LSP rename (|vim.lsp.buf.rename()|), handled by your
+PHP language server, not by this plugin: the file isn't renamed or moved to
+the new namespace's directory by it.
+
 ==============================================================================
 6. LUA API                                        *php-namespace-refactor-api*
 
