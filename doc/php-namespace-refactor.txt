@@ -165,9 +165,12 @@ Map it to the key you prefer in PHP buffers, e.g. `<leader>rn`: >lua
     vim.api.nvim_create_autocmd('FileType', {
       pattern = 'php',
       callback = function(args)
-        vim.keymap.set('n', '<leader>rn', '<Plug>(PhpNamespaceRefactorRename)', {
-          buffer = args.buf,
-        })
+        vim.keymap.set(
+          'n',
+          '<leader>rn',
+          '<Plug>(PhpNamespaceRefactorRename)',
+          { buffer = args.buf }
+        )
       end,
     })
 <
