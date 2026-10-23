@@ -131,6 +131,17 @@ function Index:remove(file)
   self.entries[file] = nil
 end
 
+---Removes every file under `directory`.
+---@param directory string
+function Index:remove_directory(directory)
+  local prefix = directory:gsub('/+$', '') .. '/'
+  for file in pairs(self.entries) do
+    if vim.startswith(file, prefix) then
+      self:remove(file)
+    end
+  end
+end
+
 ---@return boolean ok
 function Index:save()
   vim.fn.mkdir(vim.fs.dirname(self.path), 'p')

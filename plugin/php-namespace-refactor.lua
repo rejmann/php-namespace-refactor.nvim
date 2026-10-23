@@ -23,15 +23,17 @@ end, { desc = 'Rename the PHP class or namespace under the cursor' })
 local group = vim.api.nvim_create_augroup('PhpNamespaceRefactor', {})
 
 -- Build the namespace index of a composer project the first time one of its
--- PHP files is opened, rather than at startup.
+-- PHP files is opened, rather than at startup, and attach the in-process
+-- language server that file explorers notify about renamed files.
 vim.api.nvim_create_autocmd('FileType', {
   group = group,
   pattern = 'php',
-  desc = 'Build the PHP namespace index of the project',
+  desc = 'Set up PHP namespace refactoring for the project',
   callback = function(args)
     local file = vim.api.nvim_buf_get_name(args.buf)
     if file ~= '' then
       require('php-namespace-refactor.infra.index').ensure_built(file)
+      require('php-namespace-refactor.infra.lsp').start(args.buf)
     end
   end,
 })
