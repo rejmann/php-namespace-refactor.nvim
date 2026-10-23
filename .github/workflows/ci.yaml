@@ -39,11 +39,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # LuaLS resolves the Neovim API from $VIMRUNTIME (see .luarc.json).
-      - uses: rhysd/action-setup-vim@v1.6.1
-        id: nvim
-        with:
-          neovim: true
-          version: stable
+      - uses: ./.github/actions/setup-nvim
 
       - name: Install lua-language-server
         run: |
@@ -53,9 +49,7 @@ jobs:
           echo "$RUNNER_TEMP/luals/bin" >> "$GITHUB_PATH"
 
       - name: Type check
-        run: |
-          export VIMRUNTIME="$(nvim --clean --headless +'lua io.write(vim.env.VIMRUNTIME)' +qa)"
-          make typecheck-lua
+        run: make typecheck-lua
 
   test:
     name: busted (nvim ${{ matrix.nvim }})
@@ -67,6 +61,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: nvim-neorocks/nvim-busted-action@v1.2.0
+      - uses: ./.github/actions/setup-nvim
         with:
-          nvim_version: ${{ matrix.nvim }}
+          version: ${{ matrix.nvim }}
+
+      - uses: actions/cache@v4
+        with:
+          path: .rocks
+          key: rocks-${{ runner.os }}-${{ hashFiles('Makefile', '*.rockspec') }}
+
+      # Same entry point as local runs: hererocks bootstraps busted + nlua in .rocks/.
+      - name: Run specs
+        run: make test-lua

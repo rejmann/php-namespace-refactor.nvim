@@ -1,0 +1,24 @@
+name: setup-nvim
+description: Install a Neovim release tarball and export it on PATH and VIMRUNTIME
+
+inputs:
+  version:
+    description: Release tag to install (e.g. v0.10.4, stable, nightly)
+    default: stable
+
+runs:
+  using: composite
+  steps:
+    # Plain tarball download: rhysd/action-setup-vim currently fails on
+    # ubuntu-latest moving the extracted dir across devices (EXDEV).
+    - shell: bash
+      env:
+        NVIM_VERSION: ${{ inputs.version }}
+      run: |
+        dir="$RUNNER_TEMP/nvim-$NVIM_VERSION"
+        mkdir -p "$dir"
+        curl -sSfL "https://github.com/neovim/neovim/releases/download/${NVIM_VERSION}/nvim-linux-x86_64.tar.gz" \
+          | tar -xz -C "$dir" --strip-components=1
+        echo "$dir/bin" >> "$GITHUB_PATH"
+        echo "VIMRUNTIME=$dir/share/nvim/runtime" >> "$GITHUB_ENV"
+        "$dir/bin/nvim" --version | head -1
