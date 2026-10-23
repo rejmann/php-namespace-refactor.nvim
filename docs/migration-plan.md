@@ -10,7 +10,7 @@ Decisões tomadas com o usuário:
 - **Integração com explorers via LSP in-process** (`workspace/didRenameFiles` etc. — neo-tree, oil, nvim-tree e snacks já notificam todo cliente LSP).
 - **Testes com busted + nlua** (padrão nvim-neorocks).
 
-Este arquivo é a fonte de verdade do progresso: cada fase concluída vira um commit na branch `feat/neovim-migration`.
+Este arquivo é a fonte de verdade do progresso: cada fase concluída vira um commit e um PR na stack `nvim-migration/*`.
 
 ## Padrões do Neovim que o plano segue (`:help lua-plugin`)
 
@@ -76,7 +76,9 @@ vim.g.php_namespace_refactor = {
 
 ## Fases (1 commit cada, Conventional Commits em inglês como o histórico, com `Co-Authored-By: Claude Opus 5.5`)
 
-Trabalho numa branch `feat/neovim-migration` (main é a default). Cada fase porta o(s) teste(s) TS correspondente(s) para `spec/` no mesmo commit.
+Cada fase tem a própria branch `nvim-migration/NN-<slug>` e um PR empilhado (stacked): o PR da fase N tem como base a branch da fase N-1, e o da fase 1 tem base `main`. No fim, os PRs são mergeados em ordem até chegar na `main`. Cada fase porta o(s) teste(s) TS correspondente(s) para `spec/` no mesmo commit.
+
+Testes locais: `make test-lua` instala Lua 5.1 + luarocks + busted + nlua em `.rocks/` (via `pipx run hererocks`, ignorado pelo git) e roda os specs dentro do Neovim.
 
 | # | Commit | Conteúdo | Referência TS |
 |---|---|---|---|
