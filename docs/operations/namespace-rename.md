@@ -1,45 +1,42 @@
-# NamespaceRenameOperation
+# Namespace rename
 
-**File:** `src/app/operations/NamespaceRenameOperation.ts`
+**Files:** `lua/php-namespace-refactor/app/rename_feature.lua`, `app/operations/namespace_rename.lua`, `infra/composer.lua`
 
 ## Responsibility
 
-Runs when the user presses F2 with the cursor on the `namespace Foo\Bar;` line and types a new namespace.
+Runs when the rename is triggered with the cursor on the `namespace Foo\Bar;` line and a new namespace is given.
 
 ## Flow
 
 ```
-F2 (registered command)
-  → RenameHandler.handle()
-  → RenameFeature.execute()
-  → detects NamespaceType at the cursor
-  → NamespaceRenameOperation.execute()  ← here
-  → FileRenameHandler.create()          ← triggers WorkspaceEdit.renameFile()
-  → onDidRenameFiles                    ← triggers FileMoveOperation
+<Plug>(PhpNamespaceRefactorRename) / :PhpNamespaceRefactor rename / require(...).rename()
+  → rename_feature.rename()
+      cursor line → domain/rename.detect_type → 'namespace'
+      vim.ui.input({ default = current namespace }), asked again while invalid
+  → namespace_rename.execute(file, ns)   ← here
+  → app/move.lua                         ← moves the file, then the file move operation
 ```
 
 ## What it does
 
-1. Extracts the class name from the current path (e.g. `UserController`)
-2. Resolves the new namespace to its corresponding directory via PSR-4:
+1. Resolves the new namespace to its directory through PSR-4 (`composer.directory_from_namespace`, longest prefix first, see [autoload.md](../autoload.md)):
 
-```
-App\Services\Auth  →  /src/Services/Auth
-```
+   ```
+   App\Services\Auth  →  <root>/src/Services/Auth
+   ```
 
-3. Builds the new `Uri`:
+2. Builds the new path with the same file name and extension:
 
-```
-/src/Domain/UserController.php  →  /src/Services/Auth/UserController.php
-```
+   ```
+   <root>/src/Domain/UserController.php  →  <root>/src/Services/Auth/UserController.php
+   ```
 
-4. Delegates to `FileRenameHandler.create()`, which triggers `FileMoveOperation` (see [file-move.md](./file-move.md)) to update the namespace and references across the project.
+3. Calls `move()`, which creates the directory, moves the file and runs the file move operation (see [file-move.md](./file-move.md)): namespace declaration, references and imports.
+
+## Valid namespaces
+
+`domain/rename.validate(ns, 'namespace')`: not empty, no leading, trailing or doubled `\`, starts with a letter, and every segment is a valid identifier (`Foo\Bar`).
 
 ## Error behavior
 
-If the given namespace has no PSR-4 mapping in `composer.json`, it shows an error message via `window.showErrorMessage` and aborts the operation. Details on how PSR-4 mapping is resolved: [autoload.md](../autoload.md).
-
-## Dependencies
-
-- `WorkspacePathResolver` — resolves namespace → directory and extracts the class name from the current path
-- `FileRenameHandler` — performs the rename via the VS Code WorkspaceEdit API
+If no PSR-4 prefix covers the new namespace, nothing moves and `PhpNamespaceRefactor: no psr-4 mapping found for namespace …` is shown. Add a matching entry to `autoload` or `autoload-dev` in `composer.json`, or pick a namespace under an existing prefix.

@@ -1,19 +1,23 @@
 # Technical documentation
 
-Documentation to support development and troubleshooting of the PHP Namespace Refactor extension. For installation, user settings, and general usage, see the [main README](../README.md).
+Documentation for developing and troubleshooting php-namespace-refactor.nvim. For installation, options and usage, see the [main README](../README.md) and `:help php-namespace-refactor`.
 
 ## Where to start
 
-- **[Architecture](./architecture.md)** — project layers, dependency injection, activation flow. Start here if this is your first time reading the codebase.
-- **[Configuration](./configuration.md)** — every setting and which class reads it.
+- **[Architecture](./architecture.md)**: module layers, entry points and the main flows. Start here if this is your first time reading the codebase.
+- **[Configuration](./configuration.md)**: how options are resolved and which module reads each one.
 
 ## How each operation works
 
-- **[Namespace rename](./operations/namespace-rename.md)** — F2 on `namespace Foo\Bar;`
-- **[Class rename](./operations/class-rename.md)** — F2 on `class Foo`/`interface Foo`/`trait Foo`
-- **[File move](./operations/file-move.md)** — drag-and-drop in the Explorer (and the convergence point of the two flows above)
+- **[File move](./operations/file-move.md)**: `:PhpNamespaceRefactor move` and file explorer renames, the convergence point of every flow
+- **[Class rename](./operations/class-rename.md)**: rename on `class Foo` / `interface` / `trait` / `enum`
+- **[Namespace rename](./operations/namespace-rename.md)**: rename on `namespace Foo\Bar;`
 
 ## Infrastructure
 
-- **[Namespace index](./namespace-index.md)** — on-disk cache (`namespace-index.json`) used to locate references quickly, how it's built and kept up to date, and how to inspect/clear it
-- **[PSR-4 autoload resolution](./autoload.md)** — how `composer.json` is read and mapped to namespaces/directories; starting point for investigating "namespace rename doesn't work"
+- **[Namespace index](./namespace-index.md)**: the per-project cache used to find references quickly, how it's built and kept up to date, and how to inspect or clear it
+- **[PSR-4 autoload resolution](./autoload.md)**: how `composer.json` is read and mapped to namespaces and directories; the place to start when a namespace rename doesn't work
+
+## History
+
+- **[Migration plan](./migration-plan.md)**: how the VS Code extension was ported to Neovim, phase by phase

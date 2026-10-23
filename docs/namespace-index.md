@@ -1,102 +1,75 @@
 # Namespace index
 
-**Files:** `src/infra/index/NamespaceIndex.ts`, `src/infra/index/NamespaceIndexBuilder.ts`, `src/infra/index/WorkspaceIndex.ts`
+**Files:** `lua/php-namespace-refactor/infra/index.lua`, `infra/files.lua`
 
 ## Responsibility
 
-To update every reference (`use` statement) to a moved/renamed class without scanning the whole workspace on every operation, the extension keeps an inverted index on disk: `namespace-index.json`. It maps each namespace to the classes that import it, letting `MultiFileReferenceUpdater` (see [file-move.md](./operations/file-move.md)) quickly locate the files affected by a rename.
+To update every reference to a moved class without reading the whole project on each operation, each composer project gets an index of which classes every file imports. `app/services/multi_file_reference_updater.lua` asks it which files import the old fully qualified name (`Index:files_using()`).
 
-The index is an optimization, not a source of truth: `MultiFileReferenceUpdater` always complements the index result with a direct workspace scan (`findAffectedPathsByScan`), so a stale or corrupted index falls back, at worst, to full-scan behavior — it never silently leaves a reference un-updated.
+The index is an optimization, not a source of truth: the reference updater always adds a scan of the project files for the old name's text, so a stale or broken index only makes a refactor slower, never incomplete.
 
 ## How it's built
 
-On extension activation (`extension.ts`), `NamespaceIndexBuilder.build()` is fired **without `await`** (fire-and-forget), so it doesn't delay activation:
+On the first `FileType php` of a buffer inside a composer project (`plugin/php-namespace-refactor.lua` → `index.ensure_built()`), never at startup:
 
-1. `WorkspaceIndex.execute()` lists every PHP file in the workspace (respecting `ignoredDirectories` and `additionalExtensions`, see [configuration.md](./configuration.md))
-2. Each file is read and passed to `NamespaceIndex.parseAndAdd()`, which extracts via regex:
-   - **`declares`** — the namespace declared in the file (`namespace Foo\Bar;`)
-   - **`imports`** — the file's list of `use` statements
-3. At the end, `NamespaceIndex.save()` writes the result to disk
+1. `index.get(root)` loads the saved index of that project, if any
+2. `Index:build()` lists the project files (`infra/files.lua`: `rg`, then `git ls-files`, then a directory walk; honors `ignored_directories` and `additional_extensions`)
+3. Files whose mtime differs from the saved entry are read and parsed (`index.parse()`): the declared `namespace` and the line-leading `use` imports (plain or aliased, leading `\` stripped). Unchanged files are skipped, files that no longer exist are dropped
+4. Work runs in chunks of `CHUNK_SIZE` (200) files with `vim.schedule` in between, so the editor stays responsive on large projects
+5. The result is saved
 
 ## How it's kept up to date
 
-Three subscribers, registered in `extension.ts`, update the index incrementally as the user works — without ever rebuilding the whole index:
-
-| VS Code event | Subscriber (`src/app/subscribers/`) | Effect on the index |
+| Event | Where | Effect |
 |---|---|---|
-| `onDidCreateFiles` | `FileCreatedSubscriber` | Reads the new file and calls `parseAndAdd` |
-| `onDidDeleteFiles` | `FileDeletedSubscriber` | Calls `removeFile`, also clearing the corresponding `usages` entries |
-| `onDidSaveTextDocument` | `FileSavedSubscriber` (`.php` files only) | Re-parses the saved content and calls `parseAndAdd` |
+| `BufWritePost` | `index.on_write()` | Re-parses the written file and saves |
+| A refactored move | `app/operations/file_move.lua` | Drops the old path, indexes the new one, saves |
+| Explorer creates files | `infra/lsp.lua` (`workspace/didCreateFiles`) | Indexes the new files (also inside a created folder) |
+| Explorer deletes files | `infra/lsp.lua` (`workspace/didDeleteFiles`) | Drops the files, or everything under a deleted folder |
 
-`parseAndAdd` always removes the file's previous entry before adding the new one (internal `removeFile` call), so re-saving a file never leaves `usages` with duplicate or stale entries for that file.
-
-Each subscriber persists (`NamespaceIndex.save()`) after processing its event — there's no debounce, so a rapid sequence of saves produces one disk write per event.
-
-The file rename/move itself (`FileMoveOperation`) does **not** update the index directly; the update happens indirectly once the affected files are rewritten and VS Code fires `onDidSaveTextDocument` for them (via `FileEditApplier`).
+There's no debounce: each event saves the index once.
 
 ## Where the cache is stored
 
-The file is written to VS Code's workspace storage, isolated per project:
+One JSON file per project, named after the sha256 of the project root:
 
 ```
-~/.config/Code/User/workspaceStorage/<workspace-hash>/<publisher>.<extension>/namespace-index.json
+stdpath('cache')/php-namespace-refactor/<sha256(root)>.json
 ```
 
-To find the hash for the current workspace:
+Usually `~/.cache/nvim/php-namespace-refactor/`. To find the file of a project:
 
-```bash
-grep -rl "your-project-folder-name" ~/.config/Code/User/workspaceStorage/*/workspace.json
-```
-
-Example output:
-```
-/home/user/.config/Code/User/workspaceStorage/58c76f185bb1a645e121bf49daf7664c/workspace.json
-```
-
-The cache path would then be:
-
-```
-~/.config/Code/User/workspaceStorage/58c76f185bb1a645e121bf49daf7664c/rejman.php-namespace-refactor/namespace-index.json
+```vim
+:lua print(require('php-namespace-refactor.infra.index').get(vim.fs.root(0, 'composer.json')).path)
 ```
 
 ## Cache format
 
 ```json
 {
+  "version": 1,
+  "root": "/path/to/project",
   "files": {
-    "/path/to/src/Models/User.php": {
-      "declares": "App\\Models",
-      "imports": ["App\\Services\\AuthService"]
+    "/path/to/project/src/Controller/UserController.php": {
+      "declares": "App\\Controller",
+      "imports": ["App\\Models\\User"],
+      "mtime": "1761222000.123456789"
     }
-  },
-  "usages": {
-    "App\\Models\\User": [
-      "/path/to/src/Controllers/UserController.php"
-    ]
   }
 }
 ```
 
-- `files` — the declared namespace and imports of each indexed file
-- `usages` — inverted index: for each fully-qualified namespace, which files import it via `use`
+Only per-file entries are saved; the reverse map (FQCN → files) is rebuilt when the file is loaded. A file with another `version` is ignored and rebuilt.
 
 ## Inspecting or clearing the cache
 
-**View the cache:**
-```bash
-cat ~/.config/Code/User/workspaceStorage/<hash>/rejman.php-namespace-refactor/namespace-index.json | jq
+```sh
+jq . ~/.cache/nvim/php-namespace-refactor/<hash>.json   # inspect
+rm -r ~/.cache/nvim/php-namespace-refactor              # clear every project
 ```
 
-**Delete the cache** (it will be rebuilt on next activation):
-```bash
-rm ~/.config/Code/User/workspaceStorage/<hash>/rejman.php-namespace-refactor/namespace-index.json
-```
-
-**Find every cache for this extension across projects:**
-```bash
-find ~/.config/Code/User/workspaceStorage -name "namespace-index.json" 2>/dev/null
-```
+Clearing is always safe: the next PHP file opened in the project rebuilds the index. `:checkhealth php-namespace-refactor` shows how many files the current project's index holds.
 
 ## Signs something is wrong with the index
 
-Since `MultiFileReferenceUpdater` always falls back to a scan, a broken index shouldn't cause un-updated references — only make the operation slower (equivalent to a full workspace scan on every rename). If a user reports noticeable slowness on refactors after heavy use, deleting the cache (above) and letting it rebuild on the next activation is the first troubleshooting step.
+Since the reference updater always scans too, a broken index can't cause missed references, only slower refactors. If refactors get noticeably slow, clear the cache.

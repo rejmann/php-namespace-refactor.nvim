@@ -1,48 +1,41 @@
-# ClassRenameOperation
+# Class rename
 
-**File:** `src/app/operations/ClassRenameOperation.ts`
+**Files:** `lua/php-namespace-refactor/app/rename_feature.lua`, `app/operations/class_rename.lua`, `domain/rename.lua`
 
 ## Responsibility
 
-Runs when the user presses F2 with the cursor on the class declaration line (`class Foo`, `interface Foo`, `trait Foo`) and types a new name.
+Runs when the rename is triggered with the cursor on a class, interface, trait or enum declaration (`class Foo`, `final class Foo`, `enum Status: string`, ...) and a new name is given.
 
 ## Flow
 
 ```
-F2 (registered command)
-  → RenameHandler.handle()
-  → RenameFeature.execute()
-  → detects ClassType at the cursor
-  → ClassRenameOperation.execute()  ← here
-  → FileRenameHandler.create()      ← triggers WorkspaceEdit.renameFile()
-  → onDidRenameFiles                ← triggers FileMoveOperation
+<Plug>(PhpNamespaceRefactorRename) / :PhpNamespaceRefactor rename / require(...).rename()
+  → rename_feature.rename()
+      checks the rename option, a PHP buffer, and the cursor line (domain/rename.detect_type → 'class')
+      vim.ui.input({ default = current name }), asked again with the error while invalid (domain/rename.validate)
+  → class_rename.execute(file, name)    ← here
+  → app/move.lua                        ← renames the file, then the file move operation
 ```
 
 ## What it does
 
-Builds the new `Uri`, keeping the same directory and only replacing the file name with the new class name:
+Builds the new path, keeping the directory and the **full configured extension**:
 
 ```
-/src/Domain/OldClass.php  →  /src/Domain/NewClass.php
+/src/Domain/OldClass.php        →  /src/Domain/NewClass.php
+/src/Domain/Color.class.php     →  /src/Domain/Shade.class.php   (with 'class.php' in additional_extensions)
 ```
 
-It then delegates the rename to `FileRenameHandler.create()`, which triggers VS Code's `onDidRenameFiles` event — the same event that drives `FileMoveOperation` to:
+Then calls `move()`, and the file move operation (see [file-move.md](./file-move.md)):
 
-- Update the `namespace` declaration in the file
-- Update the class name inside the file (via `ClassNameUpdater`)
-- Update every `use` statement referencing the class throughout the project
-- Optionally, rename class-typed constructor properties (and their `$this->x` usages) in the affected files to match the new class name — only when `renameProperties` is enabled, folded into the same pass as the reference update; see `PropertyRenameOperation` in [file-move.md](./file-move.md#2-namespace-and-reference-update-namespacebatchupdater)
+- renames the declaration inside the file (`class_name_updater`)
+- updates every reference in the project: FQCNs, `use` statements, the short class name
+- optionally renames the constructor property typed with the class (`rename_properties`)
 
-## Difference from a direct Explorer rename
+## Valid names
 
-There's no separate `FileRenameOperation` class. When the user renames the file directly through the VS Code Explorer (F2 on the tree item, without going through this extension's command), VS Code fires `onDidRenameFiles` directly — the same event drag-and-drop uses — and the flow lands straight in `FileMoveOperation` (see [file-move.md](./file-move.md)), without going through `ClassRenameOperation`.
+`domain/rename.validate(name, 'class')`: not empty, doesn't start with a digit, no hyphens or spaces, only letters, digits and underscores, starting with a letter or underscore.
 
-Both paths produce the same end result (a same-directory file rename, followed by the namespace/class/reference update), but they differ in origin:
+## Same result from a file explorer
 
-- **F2 inside the file, on `class Foo`/`interface Foo`/`trait Foo`** — triggers `ClassRenameOperation`, which builds the new `Uri` and delegates to `FileRenameHandler.create()`
-- **F2 (or a manual rename) on the Explorer item** — doesn't go through `ClassRenameOperation`; VS Code already fires `onDidRenameFiles` on its own, and `FileMoveOperation` handles it the same way as a drag-and-drop
-
-## Dependencies
-
-- `WorkspacePathResolver` — extracts the directory and extension from the current path
-- `FileRenameHandler` — performs the rename via the VS Code WorkspaceEdit API
+Renaming `OldClass.php` to `NewClass.php` in neo-tree, oil, nvim-tree or snacks lands directly in the file move operation (through `workspace/didRenameFiles`), with the same result. The rename feature only adds the prompt and the path computation.

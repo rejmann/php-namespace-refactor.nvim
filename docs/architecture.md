@@ -1,69 +1,65 @@
 # Architecture
 
-Overview of how the extension is organized, to help you find the right place when investigating a bug or support question.
+How the plugin is organized, to help you find the right place when investigating a bug or a support question.
 
 ## Layers
 
-The code in `src/` follows three layers, mapped in `tsconfig.json` as aliases (`@app/*`, `@domain/*`, `@infra/*`):
+Everything lives under `lua/php-namespace-refactor/`, in three layers:
 
 | Layer | Folder | Responsibility |
 |---|---|---|
-| `app` | `src/app/` | Orchestration: commands, VS Code event handlers, features, and high-level operations (class/namespace rename, file move) |
-| `domain` | `src/domain/` | Pure business rules (PHP parsing, path resolution, validation, feature flags), with no direct dependency on the VS Code API wherever possible |
-| `infra` | `src/infra/` | External integrations: reading `composer.json`, the on-disk namespace index, calls to the VS Code API (`WorkspaceEdit`, `TextDocument`) |
+| `domain` | `domain/` | Pure rules over strings: PHP patterns, `use` statements, paths and extensions, typed properties, rename validation. No `vim.api`, no file access: functions take text and return values or text edits |
+| `infra` | `infra/` | Integrations: `composer.json` (`composer.lua`), file access preferring loaded buffers (`fs.lua`), collecting and applying edits (`edit.lua`), project file listing (`files.lua`), the namespace index (`index.lua`), the in-process language server (`lsp.lua`) |
+| `app` | `app/` | Orchestration: `services/` are reusable steps, `operations/` run a full refactor, `move.lua` and `rename_feature.lua` are the user-facing entry points |
 
-Inside `app/`:
+Next to them:
 
-- `commands/` — entry points triggered by VS Code commands or events (`RenameHandler`, `FileRenameHandler`)
-- `features/` — orchestrates the flow of a single user interaction (`RenameFeature`)
-- `operations/` — runs a full refactor operation (`ClassRenameOperation`, `NamespaceRenameOperation`, `FileMoveOperation`, `PropertyRenameOperation`)
-- `services/` — reusable steps used by the operations (`NamespaceBatchUpdater`, `MissingClassImporter`, `DirectoryMovedFilesResolver`, `remove/ImportRemover`, `update/*`)
-- `subscribers/` — react to workspace events to keep the namespace index up to date (`FileCreatedSubscriber`, `FileDeletedSubscriber`, `FileSavedSubscriber`)
+- `init.lua`: public API (`setup`, `move`, `rename`) and the `:PhpNamespaceRefactor` subcommands
+- `config.lua`: defaults, merging, validation, see [configuration.md](./configuration.md)
+- `health.lua`: `:checkhealth php-namespace-refactor`
 
-Detailed documentation for each operation: [docs/operations/](./operations/).
+Dependencies are plain `require`s. Where a test needs to swap something, it's a parameter (e.g. `extensions` in `domain/path.lua`, `index` in the multi-file updater) or a `luassert` stub; there's no DI framework.
 
-## Dependency injection
+## Entry points (`plugin/php-namespace-refactor.lua`)
 
-Every class is registered with `tsyringe` (`@injectable()` / `@singleton()` decorators) and resolved via `container.resolve(...)`. There's no central bindings file — `tsyringe` automatically resolves any class decorated with `@injectable()`/`@singleton()` from its constructor, with no need for per-class explicit configuration.
+The plugin file is small and requires nothing at startup ([`:help lua-plugin-lazy`](https://neovim.io/doc/user/lua-plugin.html)):
 
-One exception is registered manually in `extension.ts`:
-
-- `'StorageUri'` — a string with the workspace's storage path, injected into `NamespaceIndex` via `@inject('StorageUri')`
-
-`NamespaceIndex` is `@singleton()` (a single shared instance across the whole extension); every other class is `@injectable()` (a new instance on each `resolve`/injection).
-
-## Activation (`src/extension.ts`)
-
-When the extension activates, `activate()` does the following:
-
-1. Creates the workspace's storage directory (`context.storageUri`) and registers its path in the DI container
-2. Fires `NamespaceIndexBuilder.build()` **without awaiting it** (fire-and-forget) — the index is built in the background so it doesn't delay activation. See [namespace-index.md](./namespace-index.md)
-3. Registers the three file-event subscribers (`onDidCreateFiles`, `onDidDeleteFiles`, `onDidSaveTextDocument`), which keep the index up to date
-4. Registers the `onDidRenameFiles` handler (`FileRenameHandler`), triggered both by drag-and-drop in the Explorer and by the extension's own internal rename flow (F2)
-5. Registers the `phpNamespaceRefactor.rename` command (F2 shortcut), which checks the `rename` feature flag before delegating to `RenameHandler`
+1. `:PhpNamespaceRefactor {move|rename}`: dispatched by `init.lua`
+2. `<Plug>(PhpNamespaceRefactorRename)`: calls `require('php-namespace-refactor').rename()`. There are no default mappings
+3. `FileType php` autocmd: builds the project's [namespace index](./namespace-index.md) and starts the in-process language server for the project (`infra/lsp.lua`), the first time a PHP file of a composer project is opened
+4. `BufWritePost` autocmd: re-indexes the written file
 
 ## Main flows
 
 ```
-User drags a file/directory in the Explorer
-  → onDidRenameFiles
-  → FileRenameHandler.handle()
-  → FileMoveOperation.execute()
-  See: docs/operations/file-move.md
+:PhpNamespaceRefactor move {old} {new}       require('php-namespace-refactor').move()
+  → app/move.lua: vim.uv.fs_rename, buffers follow the file
+  → file_move.enqueue()                       see docs/operations/file-move.md
 
-User presses F2 on "namespace Foo\Bar;" or "class Foo"
-  → RenameHandler.handle()
-  → RenameFeature.execute()
-  → NamespaceRenameOperation or ClassRenameOperation
-  → FileRenameHandler.create()  (WorkspaceEdit.renameFile)
-  → onDidRenameFiles              (re-enters the FileMoveOperation flow above)
-  See: docs/operations/namespace-rename.md and docs/operations/class-rename.md
+<Plug>(PhpNamespaceRefactorRename) / :PhpNamespaceRefactor rename
+  → app/rename_feature.lua: detect namespace/class on the cursor line, vim.ui.input
+  → operations/namespace_rename.lua or operations/class_rename.lua: compute the new path
+  → app/move.lua                              (same as above)
+  See docs/operations/namespace-rename.md and docs/operations/class-rename.md
+
+File explorer moves or renames a file/directory (neo-tree, oil, nvim-tree, snacks)
+  → workspace/didRenameFiles to the in-process language server (infra/lsp.lua)
+  → file_move.enqueue()                       (same as above)
 ```
 
-In other words: **every** namespace/reference update ultimately goes through `FileMoveOperation` — the F2 flows only decide the file's new path and delegate the physical rename to the same `onDidRenameFiles` event used by drag-and-drop.
+In other words, **every** refactor goes through `app/operations/file_move.lua`. The rename flows only decide the file's new path, and explorers already moved the file themselves.
+
+## Edits
+
+Services never write files directly. They compute `TextEdit`s (`{ start, finish, text }`, 0-based end-exclusive byte offsets into the text returned by `fs.read_text()`), collect them in an `infra/edit.lua` `WorkspaceEdit` and apply it once:
+
+- a file loaded in a buffer is edited in place with a single `nvim_buf_set_text()` over the changed span (one undo step per buffer), and left unsaved
+- other files are written to disk, or loaded into unsaved buffers when `edit_files_in_background` is off
+
+Since edits are offsets into the text as it was read, every edit of one file in one `WorkspaceEdit` must be computed from that same text; overlapping edits are rejected.
 
 ## Other documents
 
-- [Configuration](./configuration.md) — every setting and the classes that read them
-- [Namespace index](./namespace-index.md) — the on-disk cache used to quickly locate files affected by a rename
-- [PSR-4 autoload resolution](./autoload.md) — how `composer.json` is read and mapped to namespaces/directories
+- [Configuration](./configuration.md)
+- [Namespace index](./namespace-index.md)
+- [PSR-4 autoload resolution](./autoload.md)
