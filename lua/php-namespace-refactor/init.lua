@@ -23,6 +23,11 @@ M.subcommands = {
       return require('php-namespace-refactor.app.move').complete(arg_lead)
     end,
   },
+  rename = {
+    impl = function()
+      require('php-namespace-refactor.app.rename_feature').rename()
+    end,
+  },
 }
 
 ---Moves a PHP file or a directory and refactors the project for it:
@@ -34,6 +39,14 @@ M.subcommands = {
 ---@return string? err
 function M.move(old, new, opts)
   return require('php-namespace-refactor.app.move').move(old, new, opts)
+end
+
+---Renames the class or namespace declared on the cursor line, asking for
+---the new name with vim.ui.input(). A class rename renames its file; a
+---namespace rename moves the file to the namespace's PSR-4 directory.
+---@param opts? php_namespace_refactor.MoveOpts
+function M.rename(opts)
+  require('php-namespace-refactor.app.rename_feature').rename(opts)
 end
 
 ---Entry point of the :PhpNamespaceRefactor user command.

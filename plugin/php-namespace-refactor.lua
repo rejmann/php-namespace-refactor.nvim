@@ -15,6 +15,11 @@ end, {
   end,
 })
 
+-- No default mappings, see :help php-namespace-refactor-mappings
+vim.keymap.set('n', '<Plug>(PhpNamespaceRefactorRename)', function()
+  require('php-namespace-refactor').rename()
+end, { desc = 'Rename the PHP class or namespace under the cursor' })
+
 local group = vim.api.nvim_create_augroup('PhpNamespaceRefactor', {})
 
 -- Build the namespace index of a composer project the first time one of its
