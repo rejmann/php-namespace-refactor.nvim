@@ -2,6 +2,12 @@
 
 local M = {}
 
+---Optional: the plugin also reads its options from `vim.g.php_namespace_refactor`.
+---@param opts? php_namespace_refactor.Opts
+function M.setup(opts)
+  require('php-namespace-refactor.config').setup(opts)
+end
+
 ---@class php_namespace_refactor.Subcommand
 ---@field impl fun(args: string[], opts: table) Runs the subcommand with its arguments
 ---@field complete? fun(arg_lead: string): string[] Completes the subcommand's arguments
