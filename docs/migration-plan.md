@@ -17,7 +17,7 @@ Este arquivo é a fonte de verdade do progresso: cada fase concluída vira um co
 - `plugin/php-namespace-refactor.lua` **pequeno**: só cria `:PhpNamespaceRefactor`, `<Plug>` maps e autocmds; todo `require()` fica dentro dos callbacks (lazy-loading implícito). Guard `vim.g.loaded_php_namespace_refactor`.
 - **Configuração separada da inicialização**: funciona sem `setup()`. Config lida de `vim.g.php_namespace_refactor` (tabela) e `require('php-namespace-refactor').setup(opts)` apenas faz merge; validação com `vim.validate`.
 - **Sem keymaps padrão**: expõe `<Plug>(PhpNamespaceRefactorRename)` + função Lua; README mostra como mapear `<F2>` em `ftplugin`/autocmd `FileType php`.
-- **LuaCATS** (`---@class`, `---@param`) em tudo + `.luarc.json` + typecheck no CI (lua-typecheck-action).
+- **LuaCATS** (`---@class`, `---@param`) em tudo + `.luarc.json` + typecheck no CI (`lua-language-server --check`).
 - **`:checkhealth php-namespace-refactor`** via `lua/php-namespace-refactor/health.lua`.
 - **vimdoc** em `doc/php-namespace-refactor.txt`; SemVer com release-please.
 - Estilo Lua: `stylua` (2 espaços, aspas simples), `snake_case`, módulos retornando tabela `M`, `local` em tudo.
@@ -85,7 +85,7 @@ Testes locais: `make test-lua` instala Lua 5.1 + luarocks + busted + nlua em `.r
 | 0 | `docs: add neovim migration plan` | `docs/migration-plan.md` (este plano) | — |
 | 1 | `chore: scaffold neovim plugin layout` | `plugin/…lua` (guard + comando stub), `lua/php-namespace-refactor/init.lua`, `.stylua.toml`, `.luarc.json`, `selene.toml`, `.editorconfig` | `extension.ts` |
 | 2 | `test: add busted + nlua harness` | `.busted`, `spec/minimal_spec.lua`, alvo `make test-lua` | `.vscode-test.mjs` |
-| 3 | `ci: add lint, typecheck and test workflow` | `.github/workflows/ci.yaml`: stylua, selene, lua-typecheck-action, nvim-busted-action (nvim 0.10 e stable) | — |
+| 3 | `ci: add lint, typecheck and test workflow` | `.github/workflows/ci.yaml`: stylua, selene, LuaLS `--check`, `make test-lua` (nvim 0.10.4 e stable; Neovim via tarball em `.github/actions/setup-nvim`) | — |
 | 4 | `feat(config): add config resolution and validation` | defaults, merge, `vim.validate`, `get_polymorphic_flag` | `ConfigurationLocator`, `FeatureFlagManager`, `PropertyRenameSettingsResolver` (+ test) |
 | 5 | `feat(domain): port php patterns` | identificador com fronteira, declaração de classe/enum/trait | `PhpPatterns`, `ClassNameBoundaryRegexBuilder` (+ test) |
 | 6 | `feat(domain): port path and extension resolution` | `class_name_from_path`, `extension_from_path`, `normalize_extensions` | `WorkspacePathResolver` (parte pura), `FileExtensionResolver`, `utils/extensions` (+ tests) |
