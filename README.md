@@ -4,7 +4,7 @@ Hi PHP Developers 👋!
 
 A Neovim plugin that refactors namespaces and references when PHP files and directories move, or when classes and namespaces are renamed. It keeps PSR-4 projects consistent without leaving the editor.
 
-> Formerly a Visual Studio Code extension. See [Coming from VS Code](#coming-from-vs-code).
+> Ported from the Visual Studio Code extension [php-namespace-refactor](https://github.com/rejmann/php-namespace-refactor) (versioned separately; this plugin starts at 1.0.0). See [Coming from VS Code](#coming-from-vs-code).
 
 ## Features
 
@@ -43,14 +43,18 @@ The plugin loads lazily on its own, so no lazy-loading setup is needed.
 [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 ```lua
-{ 'rejmann/php-namespace-refactor.nvim' }
+{ 'rejmann/php-namespace-refactor.nvim', version = '*' }
 ```
 
 Neovim's built-in `vim.pack` (0.12+):
 
 ```lua
-vim.pack.add({ 'https://github.com/rejmann/php-namespace-refactor.nvim' })
+vim.pack.add({
+  { src = 'https://github.com/rejmann/php-namespace-refactor.nvim', version = vim.version.range('*') },
+})
 ```
+
+`version = '*'` follows the latest tagged release (`vX.Y.Z`, [semver](https://semver.org)); drop it to track `main`. Breaking changes only land in major versions, so `version = '1.*'` stays on 1.x.
 
 ## Usage
 
@@ -142,6 +146,19 @@ To try the plugin by hand on the fixture project (work on a copy, commands chang
 cp -R spec/fixtures/project /tmp/project
 nvim --clean -u spec/minimal_init.lua /tmp/project/src/Foo/Bar.php
 ```
+
+### Releasing
+
+The plugin is distributed straight from this repository: plugin managers install the `vX.Y.Z` git tags, so there is no package registry to publish to. Releases are automated by [release-please](https://github.com/googleapis/release-please):
+
+1. Merge PRs into `main` with [Conventional Commits](https://www.conventionalcommits.org) messages (`feat:`, `fix:`, `feat!:` for breaking changes).
+2. The `release-please` workflow keeps a `🤖 chore: release X.Y.Z [bot]` PR open with the next version (from the commit types), the `CHANGELOG.md` entry and the `version.txt` bump.
+3. Merging that PR tags `vX.Y.Z` and publishes the GitHub release, which plugin managers pick up.
+
+Setup for the workflow (once per repository):
+
+- Settings → Actions → General → Workflow permissions: **Read and write permissions** and **Allow GitHub Actions to create and approve pull requests**.
+- Optional: a `RELEASE_PAT` secret (fine-grained token with Contents and Pull requests write access) so that CI also runs on the release PR; without it the workflow uses `GITHUB_TOKEN`.
 
 ## Release notes
 
