@@ -4,7 +4,7 @@ Hi PHP Developers 👋!
 
 A Neovim plugin that refactors namespaces and references when PHP files and directories move, or when classes and namespaces are renamed. It keeps PSR-4 projects consistent without leaving the editor.
 
-> Formerly a Visual Studio Code extension. See [Coming from VS Code](#coming-from-vs-code).
+> Ported from the Visual Studio Code extension [php-namespace-refactor](https://github.com/rejmann/php-namespace-refactor), which holds the history up to 2.0.1. See [Coming from VS Code](#coming-from-vs-code).
 
 ## Features
 
