@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.1](https://github.com/rejmann/php-namespace-refactor.nvim/compare/v1.0.0...v1.0.1) (2026-10-23)
+
+
+### 📚 Documentation
+
+* drop the F2 mapping suggestion ([5a9e6b3](https://github.com/rejmann/php-namespace-refactor.nvim/commit/5a9e6b3782d0656fbfdf47752d5f44d0c4ed4b9d))
+* drop the F2 mapping suggestion ([c6d84c9](https://github.com/rejmann/php-namespace-refactor.nvim/commit/c6d84c9aa56312e9a6ce79caa38f54e42d607de8))
+* wrap the rename mapping example in the vimdoc ([a079532](https://github.com/rejmann/php-namespace-refactor.nvim/commit/a079532919dde5f18add861c33cc40b50689108b))
+
 ## 1.0.0 (2026-10-23)
 
 
