@@ -1,4 +1,4 @@
-.PHONY: tests deps-lua test-lua format-lua
+.PHONY: tests deps-lua test-lua format-lua lint-lua typecheck-lua
 all: help
 SHELL=bash
 
@@ -33,3 +33,9 @@ test-lua: deps-lua ## run the Lua specs with busted + nlua
 
 format-lua: ## format the Lua sources with stylua
 	stylua lua plugin spec
+
+lint-lua: ## lint the Lua sources with selene
+	selene lua plugin spec
+
+typecheck-lua: ## type check the Lua sources with lua-language-server
+	lua-language-server --check=. --checklevel=Warning --logpath="$${TMPDIR:-/tmp}/php-namespace-refactor-luals"

@@ -1,0 +1,72 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  format:
+    name: stylua
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: JohnnyMorganz/stylua-action@v5.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: 2.6.0
+          args: --check lua plugin spec
+
+  lint:
+    name: selene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: NTBBloodbath/selene-action@v1.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: 0.32.0
+          args: lua plugin spec
+
+  typecheck:
+    name: lua-language-server
+    runs-on: ubuntu-latest
+    env:
+      LUALS_VERSION: 3.19.2
+    steps:
+      - uses: actions/checkout@v4
+
+      # LuaLS resolves the Neovim API from $VIMRUNTIME (see .luarc.json).
+      - uses: rhysd/action-setup-vim@v1.6.1
+        id: nvim
+        with:
+          neovim: true
+          version: stable
+
+      - name: Install lua-language-server
+        run: |
+          mkdir -p "$RUNNER_TEMP/luals"
+          curl -sSL "https://github.com/LuaLS/lua-language-server/releases/download/${LUALS_VERSION}/lua-language-server-${LUALS_VERSION}-linux-x64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP/luals"
+          echo "$RUNNER_TEMP/luals/bin" >> "$GITHUB_PATH"
+
+      - name: Type check
+        run: |
+          export VIMRUNTIME="$(nvim --clean --headless +'lua io.write(vim.env.VIMRUNTIME)' +qa)"
+          make typecheck-lua
+
+  test:
+    name: busted (nvim ${{ matrix.nvim }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        nvim: [v0.10.4, stable]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: nvim-neorocks/nvim-busted-action@v1.2.0
+        with:
+          nvim_version: ${{ matrix.nvim }}

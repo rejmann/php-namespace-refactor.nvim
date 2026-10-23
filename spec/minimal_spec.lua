@@ -1,3 +1,5 @@
+local assert = require('luassert')
+
 describe('php-namespace-refactor', function()
   it('loads the main module', function()
     local plugin = require('php-namespace-refactor')
