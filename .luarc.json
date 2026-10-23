@@ -16,10 +16,6 @@
     "vim"
   ],
   "workspace.ignoreDir": [
-    ".rocks",
-    "node_modules",
-    "out",
-    "dist",
-    ".vscode-test"
+    ".rocks"
   ]
 }

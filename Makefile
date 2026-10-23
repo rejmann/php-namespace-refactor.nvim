@@ -1,4 +1,4 @@
-.PHONY: tests deps-lua test-lua format-lua lint-lua typecheck-lua
+.PHONY: help test deps-lua test-lua format-lua lint-lua typecheck-lua
 all: help
 SHELL=bash
 
@@ -6,17 +6,7 @@ SHELL=bash
 help: ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-24s\033[0m %s\n", $$1, $$2}'
 
-setup: ## setup
-	rm -rf .vscode-test dist node_modules out
-	npm install
-	npm run compile
-	npm run compile-tests
-
-test: ## run tests
-	npm run test
-
-pack-manual: setup ## package the extension manually
-	npm run pack
+test: test-lua ## run the specs (alias of test-lua)
 
 ROCKS_DIR := .rocks
 ROCKS_BIN := $(ROCKS_DIR)/bin
