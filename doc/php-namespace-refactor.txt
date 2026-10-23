@@ -160,14 +160,14 @@ The plugin defines no mappings.
 <Plug>(PhpNamespaceRefactorRename)
     Normal mode. Calls |php-namespace-refactor.rename()|.
 
-Map it to the key you prefer in PHP buffers, e.g. `<leader>rn`: >lua
+Map it to the key you prefer in PHP buffers, e.g. `grn`: >lua
 
     vim.api.nvim_create_autocmd('FileType', {
       pattern = 'php',
       callback = function(args)
         vim.keymap.set(
           'n',
-          '<leader>rn',
+          'grn',
           '<Plug>(PhpNamespaceRefactorRename)',
           { buffer = args.buf }
         )
@@ -176,13 +176,15 @@ Map it to the key you prefer in PHP buffers, e.g. `<leader>rn`: >lua
 <
 or in `after/ftplugin/php.lua`: >lua
 
-    vim.keymap.set('n', '<leader>rn', '<Plug>(PhpNamespaceRefactorRename)', {
+    vim.keymap.set('n', 'grn', '<Plug>(PhpNamespaceRefactorRename)', {
       buffer = true,
     })
 <
-Note that `grn` is the LSP rename (|vim.lsp.buf.rename()|), handled by your
-PHP language server, not by this plugin: the file isn't renamed or moved to
-the new namespace's directory by it.
+This buffer-local `grn` replaces the default LSP rename
+(|vim.lsp.buf.rename()|) in PHP buffers. That rename goes through your PHP
+language server and doesn't rename the file or move it to the new namespace's
+directory. If your config maps `grn` in an |LspAttach| autocmd, that mapping
+is set after |FileType| and wins, so map the plugin there instead.
 
 ==============================================================================
 6. LUA API                                        *php-namespace-refactor-api*

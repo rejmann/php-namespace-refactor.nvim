@@ -66,18 +66,18 @@ vim.pack.add({
 | From Lua | `require('php-namespace-refactor').move(old, new)` / `.rename()` |
 | Check the setup | `:checkhealth php-namespace-refactor` |
 
-The plugin defines no mappings. Map `<Plug>(PhpNamespaceRefactorRename)` to the key you prefer in PHP buffers, e.g. `<leader>rn`:
+The plugin defines no mappings. Map `<Plug>(PhpNamespaceRefactorRename)` to the key you prefer in PHP buffers, e.g. `grn`:
 
 ```lua
 vim.api.nvim_create_autocmd('FileType', {
   pattern = 'php',
   callback = function(args)
-    vim.keymap.set('n', '<leader>rn', '<Plug>(PhpNamespaceRefactorRename)', { buffer = args.buf })
+    vim.keymap.set('n', 'grn', '<Plug>(PhpNamespaceRefactorRename)', { buffer = args.buf })
   end,
 })
 ```
 
-`grn` is Neovim's LSP rename (`vim.lsp.buf.rename()`), handled by your PHP language server (intelephense, phpactor, ...), not by this plugin: the file isn't renamed or moved to the new namespace's directory by it.
+This buffer-local `grn` replaces Neovim's default LSP rename (`vim.lsp.buf.rename()`) in PHP buffers. That rename goes through your PHP language server (intelephense, phpactor, ...) and doesn't rename the file or move it to the new namespace's directory. If your config maps `grn` in an `LspAttach` autocmd, that mapping is set after `FileType` and wins, so map the plugin there instead.
 
 Full documentation: `:help php-namespace-refactor`.
 
