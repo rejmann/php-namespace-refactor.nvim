@@ -85,6 +85,12 @@ function Index:files_using(namespace)
   return result
 end
 
+---Number of indexed files.
+---@return integer
+function Index:count()
+  return vim.tbl_count(self.entries)
+end
+
 ---@param file string
 ---@return php_namespace_refactor.IndexEntry?
 function Index:entry(file)

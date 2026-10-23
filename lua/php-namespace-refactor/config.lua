@@ -71,7 +71,7 @@ end
 ---@return boolean ok
 ---@return string? err
 function M.validate(config)
-  return pcall(function()
+  local ok, err = pcall(function()
     validate('ignored_directories', config.ignored_directories, is_string_list, true)
     validate('additional_extensions', config.additional_extensions, is_string_list, true)
     validate('auto_import_namespace', config.auto_import_namespace, 'boolean', true)
@@ -90,6 +90,11 @@ function M.validate(config)
       end
     end
   end)
+  if ok then
+    return true
+  end
+  -- Drop the "file:line: " position vim.validate() adds, it means nothing to users.
+  return false, (tostring(err):gsub('^[^:]*:%d+: ', ''))
 end
 
 ---Stores options on top of `vim.g.php_namespace_refactor`. Calling it is
@@ -102,6 +107,25 @@ function M.setup(opts)
     error('php-namespace-refactor: invalid config: ' .. tostring(err), 2)
   end
   setup_opts = vim.tbl_extend('force', setup_opts, opts)
+end
+
+---Options set by the user (`vim.g.php_namespace_refactor`, then setup()),
+---without the defaults and unvalidated.
+---@return table
+function M.user_opts()
+  local global_opts = vim.g.php_namespace_refactor
+  return vim.tbl_extend('force', type(global_opts) == 'table' and global_opts or {}, setup_opts)
+end
+
+---Keys of `opts` that aren't options of this plugin, sorted.
+---@param opts table
+---@return string[]
+function M.unknown_keys(opts)
+  local unknown = vim.tbl_filter(function(key)
+    return M.defaults[key] == nil
+  end, vim.tbl_keys(opts))
+  table.sort(unknown)
+  return unknown
 end
 
 ---Resolves the effective config: defaults, then `vim.g.php_namespace_refactor`,
