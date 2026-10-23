@@ -1,58 +1,51 @@
 # PSR-4 autoload resolution
 
-**Files:** `src/infra/autoload/ComposerAutoloadManager.ts`, `src/infra/autoload/AutoloadPathResolver.ts`, `src/infra/autoload/NamespaceAutoloadMapper.ts`, `src/domain/namespace/NamespaceCreator.ts`
+**File:** `lua/php-namespace-refactor/infra/composer.lua`
 
 ## Responsibility
 
-The whole extension depends on the `psr-4` mapping in `composer.json` to convert a file path into a namespace (and vice versa). That mapping is read, cached, and applied by three classes chained together.
+The whole plugin depends on the `psr-4` mappings of `composer.json` to turn a file path into a namespace, and a namespace into a directory.
 
-## `ComposerAutoloadManager` — reading `composer.json`
+## Project root: `composer.root(file)`
 
-Reads `<workspaceRoot>/composer.json` and extracts:
+`vim.fs.root(file, 'composer.json')`: the closest directory above the file with a `composer.json`. Every operation works per project, so several projects can be open at once. A file outside any composer project is left alone by every feature.
 
-- `autoload["psr-4"]` (production)
-- `autoload-dev["psr-4"]` (dev)
+## Reading `composer.json`: `composer.read(root)`
 
-The result is kept in a **module-level in-memory cache** (`composerCache` / `cacheModifiedTime`, variables outside the class), invalidated by comparing the file's `mtimeMs` on every call. This means the cache is shared across every instance of the class (not per-injection) and survives between operations, only being discarded when `composer.json` changes on disk.
+Collects the entries of `autoload["psr-4"]` and `autoload-dev["psr-4"]` as `{ prefix, directory, dev }`:
 
-If the file doesn't exist, is malformed, or no workspace is open, it silently returns `{ autoload: {}, autoloadDev: {} }` — no error is shown to the user in that case.
+- prefixes lose their trailing `\` (`App\` → `App`)
+- directories are relative to the root, without `./` or a trailing `/` (`./src/` → `src`, the root itself is `''`)
+- a prefix mapped to several directories (`"App\\": ["src/", "lib/"]`) becomes one entry per directory
+- the global namespace (`"": "src/"`) is supported
 
-## `AutoloadPathResolver` — directory → namespace prefix
+The entries are cached per root until `composer.json`'s mtime changes. A missing or malformed `composer.json`, or one without `psr-4`, gives no entries, silently. `:checkhealth php-namespace-refactor` reports it.
 
-Given a `psr-4` map (`{"App\\": "src/"}`) and a path relative to the workspace, finds which psr-4 prefix covers that path and returns the namespace matching that file's **directory** (without the class name).
+## Directory → namespace: `composer.namespace_from_directory(dir, autoload?)`
 
-Walks the autoload keys in the order they appear in `composer.json` and uses the first one whose base directory (`src/` in the example above) is a prefix of the given path. It does not sort by specificity — if two psr-4 prefixes map to directories that both match the path, the first one declared in `composer.json` wins.
+Picks the entry with the **longest directory** that contains `dir`, matching whole path segments (`src` doesn't match `srcfoo`); `autoload` wins over `autoload-dev` on ties. The namespace is the prefix plus the remaining path segments: with `App\` → `src/`, `src/Domain/Sales` gives `App\Domain\Sales`.
 
-## `NamespaceAutoloadMapper` — orchestrates the two above
+Returns `nil` when no entry contains the directory, and `''` for the global namespace.
 
-Takes a file `Uri`, resolves the current autoload map via `ComposerAutoloadManager`, strips the workspace root from the path (`WorkspacePathResolver.removeWorkspaceRoot`), and runs `AutoloadPathResolver` against both `autoload` (production) and `autoloadDev`.
+## A file's class: `composer.class_namespace(file, autoload?)`
 
-## `NamespaceCreator` — a class's full namespace
+`{ namespace?, class_name, full_namespace }`, where the class name comes from the file name minus its configured extension (`domain/path.lua`). A file outside every mapping (or in the global namespace) gets `full_namespace = class_name` and no `namespace`.
 
-Combines the namespace resolved by `NamespaceAutoloadMapper` with the class name (extracted from the file name by `WorkspacePathResolver.extractClassNameFromPath`) to produce:
+## Namespace → directory: `composer.directory_from_namespace(ns, autoload)`
 
-```ts
-interface Namespace {
-  namespace?: string      // e.g. "App\\Services\\Auth"
-  className: string       // e.g. "AuthService"
-  fullNamespace: string   // e.g. "App\\Services\\Auth\\AuthService"
-}
-```
+Used by the namespace rename to find where a file goes. Picks the entry with the **longest prefix** that the namespace starts with, on whole segments (`App` doesn't match `Application`), and rebuilds the path: with `App\` → `src/`, `App\Domain\Sales` gives `<root>/src/Domain/Sales`. Leading and trailing `\` in the typed namespace are ignored.
 
-It tries the `autoload` (production) mapping first; if there's no match, it tries `autoloadDev`; if neither maps the directory, `fullNamespace` falls back to just the class name (no namespace) — this is how a file outside any directory mapped in `composer.json` is handled.
+Returns `nil` when no prefix covers the namespace. The rename then reports `no psr-4 mapping found for namespace …`. This is the most common "namespace rename doesn't work" case: the new namespace has no matching entry in `autoload`/`autoload-dev`.
 
-## `WorkspacePathResolver.getDirectoryFromNamespace` — the reverse direction
+## Differences from the VS Code version
 
-Used by `NamespaceRenameOperation` to figure out, from a **namespace typed by the user** (F2 on the `namespace ...;` line), which directory the file should be moved to:
-
-1. Sorts the psr-4 prefixes from longest to shortest (to match the most specific prefix first, unlike `AutoloadPathResolver`, which uses `composer.json` declaration order)
-2. Finds the first prefix that the typed namespace starts with
-3. Rebuilds the physical path by substituting the prefix with its mapped base directory
-
-If no psr-4 prefix covers the typed namespace, it throws an error that `NamespaceRenameOperation` catches and shows via `window.showErrorMessage("Error renaming namespace: ...")` — this is the most common "namespace rename doesn't work" scenario reported by users: the new namespace has no matching entry in the `composer.json`'s `autoload`/`autoload-dev`.
+- **Most specific mapping wins in both directions.** VS Code took the first match in `composer.json` order for path → namespace (decoded Lua tables have no key order anyway).
+- **Whole-segment matching** in both directions.
+- **`autoload-dev` is used for path → namespace too.** VS Code's `NamespaceCreator` effectively only looked at `autoload`.
+- Array directories and the global namespace work. VS Code threw on the first and produced a leading `\` for the second.
 
 ## Things to watch for when supporting users
 
-- **Missing `composer.json` or no `psr-4` section**: every class above degrades gracefully (empty mapping), so files end up treated as having no namespace — there's no visible error, just the "namespace doesn't resolve" behavior described above
-- **Stale `ComposerAutoloadManager` cache**: only happens if `composer.json` is edited by a process that doesn't update `mtime` (rare); reloading the VS Code window forces a fresh read, since the cache is module-level (lost when the extension deactivates/reactivates)
-- **Overlapping psr-4 prefixes**: the behavior differs between directory→namespace resolution (`composer.json` order, via `AutoloadPathResolver`) and namespace→directory resolution (most specific first, via `WorkspacePathResolver.getDirectoryFromNamespace`) — worth checking which of the two flows is involved when investigating an unexpected mapping
+- **No `composer.json` above the file, or no `psr-4` section**: nothing happens. Check `:checkhealth php-namespace-refactor` from a buffer of the project
+- **The file is outside every psr-4 directory**: it has no namespace, so moving it changes nothing
+- **Overlapping prefixes** (e.g. `App\` → `src/` and `App\Tests\` → `tests/`) are fine: the most specific one wins

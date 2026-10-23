@@ -1,0 +1,258 @@
+*php-namespace-refactor.txt*   Refactor PHP namespaces when files move
+
+==============================================================================
+CONTENTS                                     *php-namespace-refactor-contents*
+
+  1. Introduction ............... |php-namespace-refactor-intro|
+  2. Requirements ............... |php-namespace-refactor-requirements|
+  3. Configuration .............. |php-namespace-refactor-config|
+  4. Commands ................... |php-namespace-refactor-commands|
+  5. Mappings ................... |php-namespace-refactor-mappings|
+  6. Lua API .................... |php-namespace-refactor-api|
+  7. File explorers ............. |php-namespace-refactor-explorers|
+  8. Namespace index ............ |php-namespace-refactor-index|
+  9. Undo ....................... |php-namespace-refactor-undo|
+ 10. Health ..................... |php-namespace-refactor-health|
+
+==============================================================================
+1. INTRODUCTION                                 *php-namespace-refactor-intro*
+
+php-namespace-refactor keeps a PSR-4 project consistent when a PHP file or a
+directory moves, or when a class or namespace is renamed. For each moved
+class it updates:
+
+- the `namespace` declaration of the file, and its class name when the file
+  was renamed,
+- every reference in the project: fully qualified names (with or without a
+  leading backslash), `use` statements and, on a rename, the short class
+  name,
+- `use` statements: files left behind in the old directory import the class
+  they used to reach through their shared namespace, the moved class imports
+  its old siblings it still uses (|php-namespace-refactor-config|
+  `auto_import_namespace`), and imports made redundant by the move are
+  removed (`remove_unused_imports`),
+- optionally, the constructor property typed with a renamed class, and its
+  `$this->x` usages (`rename_properties`).
+
+Namespaces come from the `psr-4` sections (`autoload` and `autoload-dev`) of
+the closest `composer.json`, so several projects can be open at once.
+
+There are three ways to trigger a refactor:
+
+- |:PhpNamespaceRefactor| `move`,
+- |<Plug>(PhpNamespaceRefactorRename)| or |:PhpNamespaceRefactor| `rename`
+  on a `namespace` or class declaration,
+- moving or renaming files in a file explorer, see
+  |php-namespace-refactor-explorers|.
+
+==============================================================================
+2. REQUIREMENTS                          *php-namespace-refactor-requirements*
+
+- Neovim 0.10 or later.
+- A `composer.json` with a `psr-4` autoload mapping.
+- Optional: `rg` or `git`, to list project files quickly and honor
+  `.gitignore`. Without them the directory tree is walked.
+
+==============================================================================
+3. CONFIGURATION                               *php-namespace-refactor-config*
+
+The plugin works without any configuration and without calling `setup()`.
+Options can be set in a global table, before or after the plugin loads: >lua
+
+    vim.g.php_namespace_refactor = {
+      rename_properties = true,
+    }
+<
+or passed to |php-namespace-refactor.setup()|, which is merged over
+|g:php_namespace_refactor|. Options are read on every operation, so changes
+take effect immediately. An invalid value is reported and the defaults are
+used instead; |:checkhealth| lists invalid and unknown options.
+
+                                                    *g:php_namespace_refactor*
+Defaults: >lua
+
+    vim.g.php_namespace_refactor = {
+      ignored_directories = { '/vendor/', '/var/', '/cache/' },
+      auto_import_namespace = true,
+      remove_unused_imports = true,
+      additional_extensions = { 'php' },
+      rename = true,
+      edit_files_in_background = true,
+      rename_properties = false,
+    }
+<
+                                *php-namespace-refactor-ignored_directories*
+ignored_directories ~
+    List of path fragments. A file whose path relative to the project root,
+    with a leading `/`, contains one of them is never scanned or edited.
+    `/vendor/`, `/var/` and `/cache/` are always ignored, a list given here
+    adds to them. Type: `string[]`.
+
+                              *php-namespace-refactor-auto_import_namespace*
+auto_import_namespace ~
+    When a class moves to another directory, add `use` statements for the
+    classes of its old directory it uses by their short name. Type:
+    `boolean`. Default: `true`.
+
+                              *php-namespace-refactor-remove_unused_imports*
+remove_unused_imports ~
+    After a move, remove the imports that now point into the file's own
+    namespace: in the moved file, imports of its new siblings; in the
+    siblings, the import of the moved class. Aliased imports are kept.
+    Type: `boolean`. Default: `true`.
+
+                              *php-namespace-refactor-additional_extensions*
+additional_extensions ~
+    File extensions handled besides `php`, which is always included.
+    Compound extensions are matched in full, the longest first, so with
+    `class.php` configured `Color.class.php` declares `Color` and renaming
+    it gives `New.class.php`. Matching ignores case. Type: `string[]`.
+
+                                             *php-namespace-refactor-rename*
+rename ~
+    Enable |php-namespace-refactor.rename()| (and the mapping and command
+    calling it). Type: `boolean`. Default: `true`.
+
+                           *php-namespace-refactor-edit_files_in_background*
+edit_files_in_background ~
+    How files that aren't loaded in a buffer are edited. When `true`, they
+    are written to disk directly and no buffer is created. When `false`,
+    they are loaded into listed buffers, edited and left unsaved for review.
+    Loaded buffers are always edited in place and left unsaved. Type:
+    `boolean`. Default: `true`.
+
+                                  *php-namespace-refactor-rename_properties*
+rename_properties ~
+    When a class is renamed, also rename the constructor property typed
+    with it, promoted or not, readonly or not, and its `$this->x` usages:
+    `private Test $test` becomes `private NewTest $newTest`. A file where
+    several constructor parameters share that type is skipped. Only files
+    referencing the renamed class are considered.
+
+    `true` (or a table) enables it. The table form turns specific
+    behaviors off: >lua
+
+        rename_properties = { rename_mismatched_names = false }
+<
+    `rename_mismatched_names` (default `true` once enabled) also renames a
+    property whose name doesn't follow the old class name, e.g.
+    `private Test $service`. Type: `boolean|table`. Default: `false`.
+
+==============================================================================
+4. COMMANDS                                  *php-namespace-refactor-commands*
+
+                                                       *:PhpNamespaceRefactor*
+:PhpNamespaceRefactor move [{old}] {new}
+    Move the file or directory {old} to {new} and refactor the project.
+    With only {new}, move the current buffer's file. Parent directories of
+    {new} are created; {new} must not exist. Loaded buffers of the moved
+    files follow them. Both arguments complete file names.
+
+:PhpNamespaceRefactor rename
+    Same as |php-namespace-refactor.rename()|.
+
+==============================================================================
+5. MAPPINGS                                  *php-namespace-refactor-mappings*
+
+The plugin defines no mappings.
+
+                                         *<Plug>(PhpNamespaceRefactorRename)*
+<Plug>(PhpNamespaceRefactorRename)
+    Normal mode. Calls |php-namespace-refactor.rename()|.
+
+To use <F2> in PHP buffers, like the VS Code extension did: >lua
+
+    vim.api.nvim_create_autocmd('FileType', {
+      pattern = 'php',
+      callback = function(args)
+        vim.keymap.set('n', '<F2>', '<Plug>(PhpNamespaceRefactorRename)', {
+          buffer = args.buf,
+        })
+      end,
+    })
+<
+or in `after/ftplugin/php.lua`: >lua
+
+    vim.keymap.set('n', '<F2>', '<Plug>(PhpNamespaceRefactorRename)', {
+      buffer = true,
+    })
+<
+==============================================================================
+6. LUA API                                        *php-namespace-refactor-api*
+
+                                              *php-namespace-refactor.setup()*
+setup({opts})
+    Merge {opts} over |g:php_namespace_refactor|. Optional. Raises an error
+    for an invalid option. See |php-namespace-refactor-config|.
+
+                                               *php-namespace-refactor.move()*
+move({old}, {new}, {opts})
+    Like `:PhpNamespaceRefactor move {old} {new}`. The refactor runs after
+    the ones already queued. Returns `true`, or `false` and an error message
+    when the move couldn't start.
+    {opts} (optional table):
+    - `on_done` (function): called once the project was refactored.
+
+                                             *php-namespace-refactor.rename()*
+rename({opts})
+    With the cursor on a `namespace` declaration, ask for a new namespace
+    and move the file to the directory PSR-4 maps it to. With the cursor on
+    a class, interface, trait or enum declaration, ask for a new class name
+    and rename the file, keeping its extension. Uses |vim.ui.input()|; an
+    invalid name is reported and asked again. {opts} as for
+    |php-namespace-refactor.move()|.
+
+==============================================================================
+7. FILE EXPLORERS                           *php-namespace-refactor-explorers*
+
+Moving or renaming PHP files or directories in a file explorer refactors the
+project like |:PhpNamespaceRefactor| `move`, as long as the explorer sends
+LSP file operation notifications:
+
+- neo-tree.nvim,
+- oil.nvim (with `lsp_file_methods` enabled, the default),
+- nvim-tree.lua,
+- snacks.nvim (explorer and `Snacks.rename`).
+
+When a PHP file of a composer project is opened, the plugin starts an
+in-process language server named `php-namespace-refactor` for that project
+(no external process). It only registers for `workspace/didRenameFiles`,
+`workspace/didCreateFiles` and `workspace/didDeleteFiles` (and answers
+`workspace/willRenameFiles` with no edit), and offers nothing else.
+Explorers that don't notify LSP clients, such as mini.files, aren't
+supported; use |:PhpNamespaceRefactor| `move` instead.
+
+==============================================================================
+8. NAMESPACE INDEX                              *php-namespace-refactor-index*
+
+To find the files referencing a moved class without reading the whole
+project, each composer project gets an index of the classes every file
+imports. It is saved to: >
+
+    stdpath('cache')/php-namespace-refactor/<sha256 of the root>.json
+<
+The index is built the first time a PHP file of the project is opened, in
+the background and incrementally: only files changed since the last build
+are read. It is updated when a buffer is written and when an explorer
+creates, deletes or renames files. The project is also scanned during each
+refactor, so a stale index only makes it slower, never incomplete. Deleting
+the cache directory is always safe.
+
+==============================================================================
+9. UNDO                                          *php-namespace-refactor-undo*
+
+Neovim has no undo across files. Each buffer edited by a refactor receives
+the whole change as a single undo step. Files written in the background
+(|php-namespace-refactor-edit_files_in_background|) can be restored with
+version control. Set `edit_files_in_background = false` to review every
+change in a buffer before writing it.
+
+==============================================================================
+10. HEALTH                                     *php-namespace-refactor-health*
+
+`:checkhealth php-namespace-refactor` checks the Neovim version, the
+configuration (invalid values and unknown options), whether `rg` or `git` is
+available and, for the current buffer's project, the `psr-4` mappings, the
+namespace index and the in-process language server.
+
+ vim:tw=78:ts=8:noet:ft=help:norl:

@@ -1,12 +1,13 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "33b2ada55e24bc71db64fcde24262ed5603f422d",
   "include-v-in-tag": true,
   "packages": {
     ".": {
       "changelog-path": "CHANGELOG.md",
-      "package-name": "php-namespace-refactor",
-      "initial-version": "1.2.1",
-      "release-type": "node",
+      "package-name": "php-namespace-refactor.nvim",
+      "release-type": "simple",
+      "include-component-in-tag": false,
       "pull-request-title-pattern": "🤖 chore: release ${version} [bot]",
       "pull-request-header": "## 🤖 Automated Release\n\n*This PR was automatically generated and should not appear in the changelog.*",
       "changelog-sections": [
@@ -46,9 +47,6 @@
           "type": "ci",
           "section": "⚙️ Continuous Integration"
         }
-      ],
-      "extra-files": [
-        "composer.json"
       ]
     }
   }

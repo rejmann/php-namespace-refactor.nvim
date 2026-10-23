@@ -1,115 +1,97 @@
-# FileMoveOperation
+# File move
 
-**File:** `src/app/operations/FileMoveOperation.ts`
+**Files:** `lua/php-namespace-refactor/app/move.lua`, `app/operations/file_move.lua`, `app/services/*`
 
 ## Responsibility
 
-Runs when VS Code fires `onDidRenameFiles` — which covers both dragging a `.php` file/directory to another directory in the Explorer and renaming an item directly through the Explorer (F2 on the tree item). This is the convergence point for **every** refactor flow in the extension: the internal F2 commands (`ClassRenameOperation`, `NamespaceRenameOperation`) also end up here, since they delegate the physical rename to the same `onDidRenameFiles` event (see [class-rename.md](./class-rename.md) and [namespace-rename.md](./namespace-rename.md)).
+Refactors the project after PHP files or directories moved. This is the convergence point of **every** flow:
+
+- `:PhpNamespaceRefactor move` / `require('php-namespace-refactor').move()` (`app/move.lua`)
+- the rename feature, which only computes a new path and calls `move()` (see [class-rename.md](./class-rename.md) and [namespace-rename.md](./namespace-rename.md))
+- file explorers, through `workspace/didRenameFiles` on the in-process language server (`infra/lsp.lua`)
 
 ## Flow
 
 ```
-onDidRenameFiles (VS Code event)
-  → FileRenameHandler.handle()        ← queues the execution (see below)
-  → FileMoveOperation.execute(files)
-      → DirectoryMovedFilesResolver.execute()   1. expands directory moves into per-file moves
-      → for each .php file:
-          → NamespaceBatchUpdater.execute()      2. updates namespace/class + references, folding in
-                                                     (optional) class-typed property renaming
-          → MissingClassImporter.execute()       3. (optional) auto-imports classes from the old directory
-          → ImportRemover.execute()              4. (optional, checked internally) removes stale imports
+app/move.lua (command/API)                      infra/lsp.lua (explorers)
+  vim.uv.fs_rename, buffers follow                 the explorer already moved the file
+          └──────────────┬──────────────────────────────┘
+                         ↓
+file_move.enqueue(moves)                     serial queue
+  → file_move.execute(moves)
+      → directory_moved_files_resolver       1. directories → one move per file
+      → for each move with a configured extension on both sides:
+          → namespace_batch_updater          2. class name, namespace declaration, references
+          → missing_class_importer           3. (auto_import_namespace) import old siblings
+          → import_remover                   4. (remove_unused_imports) drop same-namespace imports
+          → index + file listing updated     5. keep the namespace index in sync
 ```
 
-### Serialized queue
+### Moving the file (`app/move.lua`)
 
-`FileRenameHandler` keeps a chained `Promise` (`this.queue`) and never dispatches two `FileMoveOperation` runs in parallel — each `handle()` only runs after the previous execution (success or failure) has finished. This prevents two renames fired in quick succession (e.g. moving several files at once, or a namespace rename that re-enters the same event) from corrupting the namespace index or applying edits on top of an inconsistent `WorkspaceEdit`.
+Absolute paths; refuses a missing source, an existing destination or identical paths; creates the destination's parent directories; `vim.uv.fs_rename`. Then every loaded buffer of the file (or of anything under the directory) is pointed at its new path with `nvim_buf_set_name`. Unmodified buffers are written right away (`noautocmd write!`, same content) so Neovim considers them as editing the new file; otherwise the next `:write` fails with `E13`. The stale unlisted buffer left for the old name is deleted.
 
-## What it does, step by step
+### Serial queue
 
-### 1. Directory expansion (`DirectoryMovedFilesResolver`)
+`file_move.enqueue()` appends to a list and processes one batch per `vim.schedule` tick, never two at once, so renames reported in quick succession (several files dragged in an explorer) apply in order on a consistent state. A failure in a batch is reported and doesn't stop the queue.
 
-The `onDidRenameFiles` event delivers a single `{oldUri, newUri}` pair even when an **entire directory** was moved — not one event per file. `DirectoryMovedFilesResolver` resolves this:
+## Step by step
 
-- If `newUri` points to a directory that still exists on disk, it recursively lists the whole contents and rebuilds each file's `oldUri` from its relative path
-- If `newUri` no longer exists on disk at check time (the directory was already reorganized by another operation) but the move "looks like" a directory move (no extension on either path), it tries to rebuild the move set from documents already open in the editor (`workspace.textDocuments`) that sit inside the new directory
-- If neither heuristic expands anything, it's treated as a single file move
+### 1. Directory expansion (`app/services/directory_moved_files_resolver.lua`)
 
-Files not ending in `.php` (on either the source or destination side) are filtered out afterward.
+Explorers report a single `{ old, new }` pair for a whole directory. If `new` is a directory on disk, every file under it becomes a move, with its old path rebuilt from the relative path. If `new` isn't on disk but neither path has an extension, the loaded buffers under `new` are used instead. Otherwise it's a file move. Duplicates are dropped.
 
-### 2. Namespace and reference update (`NamespaceBatchUpdater`)
+### 2. Namespace and references (`app/services/namespace_batch_updater.lua`)
 
-For each moved file, `src/app/services/NamespaceBatchUpdater.ts`:
+1. Resolves the class's new and old fully qualified names from the paths (`composer.class_namespace`, both against the new path's project, since the old path no longer exists). A file outside every PSR-4 mapping stops here
+2. If the class name changed, `class_name_updater` renames the declaration (and in-file references) to match the file name
+3. `moved_file_namespace_updater` rewrites the name in the `namespace …;` declaration. A file without one stops here: there's nothing to propagate
+4. `multi_file_reference_updater` updates the rest of the project
 
-1. Resolves the expected new `fullNamespace` from the new path (`NamespaceCreator`, see [autoload.md](../autoload.md))
-2. Also resolves what namespace the **old** path would have had (same calculation applied to `oldUri`) — used only as a reference to decide the next steps; the file itself is already at the new path
-3. If the namespace (directory) didn't change but the `fullNamespace` did — i.e. only the **file/class name** changed, without moving directories — calls `ClassNameUpdater`, which rewrites the `class`/`interface`/`trait` declaration in the file itself to match the new file name
-4. Calls `MovedFileNamespaceUpdater`, which rewrites the moved file's `namespace ...;` line to the new namespace
-5. If the namespace declaration wasn't found/changed (step 4 returns `false`), the operation stops here — there's nothing to propagate for a file with no `namespace` declaration
-6. Otherwise, calls `MultiFileReferenceUpdater` to propagate the change across the rest of the project
+#### `multi_file_reference_updater`: finding affected files
 
-`NamespaceBatchUpdater.execute()` returns the list of files `MultiFileReferenceUpdater` determined were affected (empty when it never ran, e.g. no `namespace` declaration to key off).
+The union of:
 
-#### `MultiFileReferenceUpdater` — how affected files are found
+- **the index**: `Index:files_using(old_fqcn)`, see [namespace-index.md](../namespace-index.md)
+- **a scan**: every project file (`infra/files.lua`) whose text on disk contains the old fully qualified name
 
-Combines two sources, without relying on either alone:
+So an empty or stale index never leaves references behind, it only makes the operation slower.
 
-- **Index** (`NamespaceIndex.getFilesUsing(oldFullNamespace)`) — O(1) lookup, see [namespace-index.md](../namespace-index.md)
-- **Scan** (`findAffectedPathsByScan`) — reads every file in the workspace (via `WorkspaceIndex`) and checks which ones contain the old namespace's text
+#### Edits per affected file
 
-The union of both lists is the final set. This means even an empty/stale index never leaves references un-updated — it just makes the operation slower.
+All computed against the file's text from `fs.read_text()` (buffer contents when loaded) and collected in one `WorkspaceEdit`:
 
-For each affected file, it replaces via regex:
-- every occurrence of the old fully-qualified namespace with the new one
-- if the **class name** also changed, every occurrence of the old name with the new one (excluding spans already covered by the namespace substitution, to avoid overlapping ranges)
-- if `renameProperties` resolves to enabled (off by default — see [configuration.md](../configuration.md#phpnamespacerefactorrenameproperties)) and the class was actually renamed, folds in a class-typed constructor property rename for that same file (see below) — into the *same* `WorkspaceEdit`, not a separate later pass
-- if the file had no occurrence of the old namespace at all (i.e. didn't match either case above) but sits in the same directory as the moved file, it tries to insert a new `use` statement
+- every old FQCN → new one. Only the right side is boundary-checked, so `\App\Domain\Order` matches while `App\Domain\OrderAbstract` and `App\Domain\Order\Line` don't
+- when the class name changed, every whole-word occurrence of the old short name → new, skipping those inside an FQCN already being replaced (they would overlap)
+- [property renaming](#property-renaming), when enabled
+- when the file had no FQCN occurrence, sits in the class's old directory and uses the short name, and the class left that directory: a `use` for the new FQCN
 
-The renamed file itself (`newUri`) is excluded from the above (it's the source of the rename, not a consumer), but still gets its own property-rename check afterward — covers the rare case of a class holding a property typed as itself (e.g. a linked-list node).
+Then the files in the class's **old directory** that weren't already affected get the short-name rename (if the class was renamed) and the `use` (if it moved away), and the renamed file itself gets the property check (self-typed properties, e.g. a linked-list node).
 
-Every edit across every affected file — namespace, class name, **and** property renaming — is accumulated into a **single `WorkspaceEdit`** before being applied once (`FileEditApplier.apply`), so the whole refactor (including property renaming) shows up as one undo-stack entry in VS Code instead of one edit per file, and each file is only opened/saved once — see [issue #72](https://github.com/rejmann/php-namespace-refactor/issues/72).
+The `WorkspaceEdit` is applied once (see [architecture.md](../architecture.md#edits)); a file that can't be edited is reported and the others still are. Finally `import_remover` runs for the moved file.
 
-At the end, `MultiFileReferenceUpdater` always calls `ImportRemover.execute({ uri: newUri })` for the moved file itself (in addition to the call `FileMoveOperation` already makes in step 4 below — both are no-ops if the flag is disabled or there's nothing to remove).
+#### Property renaming
 
-##### Property renaming (`PropertyRenameOperation`, optional, folded in above)
+Only when `rename_properties` is enabled and the class name changed (`property_rename.resolve_names`), only on the files above:
 
-`PropertyRenameSettingsResolver` reads the raw setting (`boolean | { renameMismatchedNames?: boolean }`) once per `MultiFileReferenceUpdater.execute()` call and turns it into `{ enabled, renameMismatchedNames }`; only `enabled` gates whether this runs at all. Also only acts when the class itself was actually renamed (`oldClassName !== newClassName`); a plain move to a different directory with the same class name is a no-op.
+1. The expected property names come from the class names (`Test` → `test`, `NewTest` → `newTest`)
+2. `domain/property/locator.lua` finds the single constructor parameter typed with the class, looking for the new class name if it's already in the text, otherwise the old one. Promoted or not, readonly or not, nullable, attributes ignored; a non-promoted one must be assigned with `$this->x = $x;`, and its class-body declaration is found even without a type hint (`@var`-only)
+3. Two parameters of that type → the file is skipped rather than guessing
+4. A property already named after the new class is left alone. One not named after the old class is only renamed with `rename_mismatched_names`
+5. Renames `$old` in the constructor and the declaration, and `$this->old` everywhere in the file
 
-1. Derives the expected old/new property names from the class names (`PropertyNameResolver`, e.g. `Test` → `test`)
-2. Runs for every file `MultiFileReferenceUpdater` already determined was affected (plus the moved file itself) — deliberately **not** an independent workspace-wide scan, so a differently-namespaced class that happens to share a short name is never touched
-3. For each candidate file, `ClassTypedPropertyLocator` looks for the constructor property typed as the renamed class — checking whichever of the old/new class name is actually present in that file's text at this point in the pass (still the old name for files whose class-name replacement is only queued, not yet applied) — promoted or not, readonly or not, confirming a non-promoted parameter by checking for a `$this->x = $x;` assignment in the constructor body (see `ConstructorSpanFinder` for how the constructor's parameter list and body are located via brace/paren matching). The property's own declaration line doesn't need a type hint to be found this way — a legacy `private $x;` typed only via a `@var ClassName` docblock is still matched and renamed, via `PropertyDeclarationPattern`, once the constructor param already confirmed what class it holds
-4. If more than one property shares that type in the same file, it's ambiguous — the file is skipped entirely rather than guessing
-5. If exactly one property is found: it's renamed when its current name already matches the *old* class-name convention, or — only when `renameMismatchedNames` also resolved to `true` — regardless of what it was named before
-6. Renaming rewrites the constructor parameter/property declaration and every `$this->x` usage in that file, added to the same shared `WorkspaceEdit` as the class-name replacement
+### 3. Importing old siblings (`app/services/missing_class_importer.lua`)
 
-### 3. Auto-import of classes from the source directory (`MissingClassImporter`, optional)
+With `auto_import_namespace`, when the class changed directory: the classes of the old directory (by file name) that the moved file uses by short name and doesn't import get a `use` with their FQCN.
 
-Only runs if the `autoImportNamespace` flag is enabled. Lists the `.php` files still left in the source directory, checks which classes from those files are used in the moved file's text but not imported, and inserts the corresponding `use` statements.
+### 4. Removing redundant imports (`app/services/import_remover.lua`)
 
-### 4. Removing stale imports (`ImportRemover`)
+With `remove_unused_imports` (checked inside the service): in the moved file, imports of its new siblings; in each sibling, the import of the moved class. Only non-aliased imports whose namespace **is** the file's namespace are removed. The VS Code version matched short names only, which could drop an import of a same-named class from another namespace, or an aliased import still in use.
 
-Unlike the other flags, the `removeUnusedImports` check happens **inside** `ImportRemover` itself (not in `FileMoveOperation`) — so it's always called, but returns immediately if the flag is disabled.
+### 5. Index
 
-When enabled: it collects the class names declared in the other files of the moved file's directory and removes, from both the moved file and the other files in that directory, any `use` statements referencing those classes that no longer make sense after the move.
-
-## Feature flags
-
-| Flag | Behavior |
-|---|---|
-| `renameProperties` (`true`/`{}`) | Enables property renaming, folded into step 2 (renaming class-typed constructor properties to match the new class name); `true`/`{}` also renames mismatched names by default (see below) |
-| `renameProperties: { renameMismatchedNames: false }` | Opts out of renaming properties whose name doesn't already match the class-name convention (on by default whenever the feature is enabled) |
-| `autoImportNamespace` | Enables step 3 (auto-import of classes from the old directory) |
-| `removeUnusedImports` | Enables the import removal in step 4 (checked inside `ImportRemover`) |
-| `editFilesInBackground` | Doesn't change what's edited, only whether touched files open a tab in the editor or are saved silently — see [configuration.md](../configuration.md) |
+The old path is dropped from the index, the new one indexed, the index saved, and the project's file listing cache cleared.
 
 ## Error handling
 
-Each file in the batch is processed inside its own `try/catch` in `FileMoveOperation.execute`; a failure on one file (`console.error` + `throw`) stops processing the **remaining** files in that same batch — there's no rollback of edits already applied to earlier files in the loop.
-
-## Dependencies
-
-- `DirectoryMovedFilesResolver` — expands directory moves into per-file moves
-- `NamespaceBatchUpdater` — orchestrates the namespace, class name, and reference update
-- `PropertyRenameOperation` — renames class-typed constructor properties (and their `$this->x` usages) to match a renamed class
-- `MissingClassImporter` — detects and injects missing imports
-- `ImportRemover` — removes unused imports
-- `FeatureFlagManager` — checks which features are enabled in the settings
+Each move runs in a `pcall`: a failure is reported with `vim.notify` and the remaining moves still run. Edits already applied for that move are not rolled back.

@@ -1,123 +1,151 @@
-# PHP Namespace Refactor 🇧🇷
+# php-namespace-refactor.nvim 🇧🇷
 
 Hi PHP Developers 👋!
 
-PHP Namespace Refactor: Extension for Visual Studio Code that automatically refactors namespace and references when moving PHP files between directories.
+A Neovim plugin that refactors namespaces and references when PHP files and directories move, or when classes and namespaces are renamed. It keeps PSR-4 projects consistent without leaving the editor.
+
+> Formerly a Visual Studio Code extension. See [Coming from VS Code](#coming-from-vs-code).
 
 ## Features
 
 ### 🚀 Automatic namespace refactoring
 
-The extension automatically detects when a PHP file or directory is moved (dragged and dropped) between directories and updates:
-    - The namespace declared in the file.
-    - All references to the old namespace in other files in the project.
+Move a PHP file or a whole directory (with a command, or in your file explorer) and the plugin updates:
 
-When a directory is moved, all PHP files inside it are processed through the same refactor flow.
+- the `namespace` declaration of each moved file (and its class name when the file was renamed),
+- every reference across the project: `use` statements, fully qualified names (`\App\Foo\Bar`), and the short class name on a rename,
+- imports: classes left behind in the old directory get a `use` for the class that moved away, the moved class imports the old siblings it still uses, and imports made redundant by the move are removed.
 
-Ideal for projects using PSR-4, making it easy to reorganize directories without breaking dependencies.
+Namespaces come from the `psr-4` mappings (`autoload` and `autoload-dev`) of the closest `composer.json`, so several projects can be open at once.
 
-- Ignored Directories: Specify directories to exclude from namespace refactoring.
+### ✏️ Rename classes and namespaces
 
-- Auto Import Namespace: Automatically import objects from the moved class's directory that were not previously imported because they share the same namespace.
+With the cursor on `namespace App\Foo;` or `class Bar`, rename it: a class rename renames its file, and a namespace rename moves the file to the namespace's PSR-4 directory. Either way the whole project follows.
 
-- Remove Unused Imports: Clean up unused imports from the same namespace.
+### 🗂️ File explorer integration
 
-- Additional Extensions:  Specify the file extensions to consider during the namespace refactoring process.
+Moving or renaming files in **neo-tree**, **oil**, **nvim-tree** or **snacks** triggers the same refactor. These explorers tell LSP clients about file operations, and the plugin listens through a tiny in-process language server (no external process).
 
-- Rename Properties (off by default): When a class is renamed, also rename its class-typed constructor properties (promoted or not, readonly or not) and their `$this->x` usages to match the new class name.
+### 🧩 Optional property renaming
+
+When a class is renamed, the constructor property typed with it can follow: `private Test $test` becomes `private NewTest $newTest`, including its `$this->test` usages (`rename_properties`).
 
 ## Requirements
 
-- PHP 7.4+
-- Composer configured in the project for namespace detection.
-- Workspace configured in Visual Studio Code with .php files
+- Neovim **0.10+**
+- A `composer.json` with a `psr-4` autoload mapping
+- Optional: `rg` or `git`, for fast project file listing that honors `.gitignore`
 
-## Extension Settings
+## Installation
 
-This extension contributes the following settings:
+The plugin loads lazily on its own, so no lazy-loading setup is needed.
 
-```json
-{
-    "phpNamespaceRefactor.ignoredDirectories": [
-        "/vendor/",
-        "/var/",
-        "/cache/"
-    ],
-    "phpNamespaceRefactor.autoImportNamespace": true,
-    "phpNamespaceRefactor.removeUnusedImports": true,
-    "phpNamespaceRefactor.additionalExtensions": [
-        "php"
-    ],
-    "phpNamespaceRefactor.rename": true,
-    "phpNamespaceRefactor.editFilesInBackground": true,
-    "phpNamespaceRefactor.renameProperties": false
+[lazy.nvim](https://github.com/folke/lazy.nvim):
+
+```lua
+{ 'rejmann/php-namespace-refactor.nvim' }
+```
+
+Neovim's built-in `vim.pack` (0.12+):
+
+```lua
+vim.pack.add({ 'https://github.com/rejmann/php-namespace-refactor.nvim' })
+```
+
+## Usage
+
+| What | How |
+|---|---|
+| Move the current file | `:PhpNamespaceRefactor move src/Domain/Sales/Order.php` |
+| Move a file or directory | `:PhpNamespaceRefactor move src/Domain src/Sales/Domain` |
+| Rename the class/namespace under the cursor | `<Plug>(PhpNamespaceRefactorRename)` or `:PhpNamespaceRefactor rename` |
+| From Lua | `require('php-namespace-refactor').move(old, new)` / `.rename()` |
+| Check the setup | `:checkhealth php-namespace-refactor` |
+
+The plugin defines no mappings. To rename with `<F2>` in PHP buffers:
+
+```lua
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = 'php',
+  callback = function(args)
+    vim.keymap.set('n', '<F2>', '<Plug>(PhpNamespaceRefactorRename)', { buffer = args.buf })
+  end,
+})
+```
+
+Full documentation: `:help php-namespace-refactor`.
+
+## Configuration
+
+No configuration or `setup()` call is required. These are the defaults:
+
+```lua
+vim.g.php_namespace_refactor = {
+  -- Path fragments never scanned or edited (relative to the project root).
+  -- /vendor/, /var/ and /cache/ are always ignored.
+  ignored_directories = { '/vendor/', '/var/', '/cache/' },
+  -- Import the classes of the old directory that a moved class uses.
+  auto_import_namespace = true,
+  -- Remove imports made redundant by a move (same namespace).
+  remove_unused_imports = true,
+  -- Extensions handled besides php, e.g. { 'php', 'class.php', 'enum.php' }.
+  additional_extensions = { 'php' },
+  -- Enable the rename feature.
+  rename = true,
+  -- Write files that aren't open straight to disk. When false, they are
+  -- loaded into buffers and left unsaved for review.
+  edit_files_in_background = true,
+  -- Rename the constructor property typed with a renamed class.
+  -- true, or { rename_mismatched_names = false } to only rename properties
+  -- already named after the old class.
+  rename_properties = false,
 }
 ```
 
-### ⚙️ Settings Description
+The same options can be passed to `require('php-namespace-refactor').setup({ ... })`, which is merged over `vim.g.php_namespace_refactor`. See `:help php-namespace-refactor-config` for details.
 
-**phpNamespaceRefactor.ignoredDirectories**
+### Undo
 
-- Specifies the directories to ignore during the namespace refactor process.
+Neovim has no multi-file undo. Every buffer touched by a refactor gets the whole change as a single undo step. Files written in the background can be restored with version control, or set `edit_files_in_background = false` to review everything before writing.
 
-- Default: "/vendor/", "/var/", "/cache/".
+## Coming from VS Code
 
-**phpNamespaceRefactor.autoImportNamespace**
+| VS Code setting | Neovim option |
+|---|---|
+| `phpNamespaceRefactor.ignoredDirectories` | `ignored_directories` |
+| `phpNamespaceRefactor.autoImportNamespace` | `auto_import_namespace` |
+| `phpNamespaceRefactor.removeUnusedImports` | `remove_unused_imports` |
+| `phpNamespaceRefactor.additionalExtensions` | `additional_extensions` |
+| `phpNamespaceRefactor.rename` | `rename` |
+| `phpNamespaceRefactor.editFilesInBackground` | `edit_files_in_background` |
+| `phpNamespaceRefactor.renameProperties` (`{ "renameMismatchedNames": false }`) | `rename_properties` (`{ rename_mismatched_names = false }`) |
 
-- Automatically imports objects from the same namespace of the moved class that were not previously imported.
-
-- Default: true.
-
-**phpNamespaceRefactor.removeUnusedImports**
-
-- Removes unused imports from the same namespace after a namespace refactor operation.
-
-- Default: true.
-
-**phpNamespaceRefactor.additionalExtensions**
-
-- Specifies the file extensions to consider during the namespace refactor process.
-
-- Default: "php".
-
-**phpNamespaceRefactor.rename**
-
-- Can be triggered by pressing F2 or the preferred rename shortcut.
-- The feature can be enabled or disabled in the settings.
-
-- Default: true.
-
-**phpNamespaceRefactor.editFilesInBackground**
-
-- Applies refactor edits to files without opening them, keeping only files that were already open in the editor.
-- Disable to have every edited file opened in the editor as before.
-
-- Default: true.
-
-**phpNamespaceRefactor.renameProperties**
-
-- When a class is renamed, also renames its class-typed constructor properties (promoted or not, readonly or not) and every `$this->x` usage to match the new class name — e.g. `private Test $test` becomes `private NewTest $newTest` when `Test` is renamed to `NewTest`.
-- If more than one property shares the same type in a constructor, the file is skipped rather than guessing which one to rename.
-- Accepts either a boolean or an object:
-  ```json
-  "phpNamespaceRefactor.renameProperties": true
-  ```
-  ```json
-  "phpNamespaceRefactor.renameProperties": {
-      "renameMismatchedNames": false
-  }
-  ```
-  Setting `true` (or an empty object) enables the feature with every child behavior on by default, including `renameMismatchedNames` — properties whose current name doesn't already match the class name (e.g. `private Test $service`) get renamed too. Use the object form only to dial a specific child back to `false`.
-
-- Default: false.
+Dragging files in the VS Code Explorer becomes a move in a supported file explorer (or `:PhpNamespaceRefactor move`), and the F2 command becomes `<Plug>(PhpNamespaceRefactorRename)`.
 
 ## Documentation
 
-For architecture, internals, and troubleshooting notes, see [./docs/](./docs/README.md).
+- `:help php-namespace-refactor`: user documentation
+- [docs/](./docs/README.md): architecture and internals, for contributors and troubleshooting
+
+## Development
+
+```sh
+make test-lua       # busted specs, run inside Neovim through nlua
+make lint-lua       # selene
+make typecheck-lua  # lua-language-server --check
+make format-lua     # stylua
+```
+
+To try the plugin by hand on the fixture project (work on a copy, commands change files on disk):
+
+```sh
+cp -R spec/fixtures/project /tmp/project
+nvim --clean -u spec/minimal_init.lua /tmp/project/src/Foo/Bar.php
+```
 
 ## Release notes
 
-See [./CHANGELOG.md](./CHANGELOG.md)
+See [CHANGELOG.md](./CHANGELOG.md).
 
 ---
 
