@@ -22,6 +22,7 @@ test_dependencies = {
 build = {
   type = 'builtin',
   copy_directories = {
+    'doc',
     'plugin',
   },
 }
