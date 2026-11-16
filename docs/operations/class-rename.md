@@ -39,3 +39,7 @@ Then calls `move()`, and the file move operation (see [file-move.md](./file-move
 ## Same result from a file explorer
 
 Renaming `OldClass.php` to `NewClass.php` in neo-tree, oil, nvim-tree or snacks lands directly in the file move operation (through `workspace/didRenameFiles`), with the same result. The rename feature only adds the prompt and the path computation.
+
+## Same file
+
+When the new path is the file itself (the file is already named after the new class, or a new namespace maps to the directory the file is already in), nothing is moved: the declarations are brought in line with the path in place and the references to the old declared name are updated, instead of failing with "source and destination are the same". `:PhpNamespaceRefactor move` with the same source and destination still reports that error.

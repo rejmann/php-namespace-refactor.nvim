@@ -23,7 +23,7 @@ end
 ---@return boolean ok
 ---@return string? err
 function M.execute(file, new_class_name, opts)
-  return move.move(file, M.target(file, new_class_name), opts)
+  return move.move_or_refactor(file, M.target(file, new_class_name), opts)
 end
 
 return M

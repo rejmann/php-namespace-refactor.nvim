@@ -109,11 +109,15 @@ describe('lsp', function()
       assert.is_table(result.capabilities.workspace.fileOperations.didRename)
     end)
 
-    it('answers willRenameFiles without an edit', function()
+    it('answers willRenameFiles with an empty edit, not null', function()
       local err, result = request(server(), 'workspace/willRenameFiles')
 
       assert.is_nil(err)
-      assert.are.equal(vim.NIL, result)
+      assert.are.same({ changes = {} }, result)
+      -- What a client applying any truthy result does with it.
+      assert.has_no.errors(function()
+        vim.lsp.util.apply_workspace_edit(result, 'utf-16')
+      end)
     end)
 
     it('rejects unknown requests', function()

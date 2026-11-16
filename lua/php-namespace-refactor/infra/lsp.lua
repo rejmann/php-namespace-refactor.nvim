@@ -130,8 +130,10 @@ local requests = {
   shutdown = function()
     return vim.NIL
   end,
+  -- An empty edit rather than null: clients that apply `result` whenever it
+  -- is truthy would index vim.NIL.
   ['workspace/willRenameFiles'] = function()
-    return vim.NIL
+    return { changes = vim.empty_dict() }
   end,
 }
 
