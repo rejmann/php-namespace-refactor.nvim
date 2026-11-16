@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.3](https://github.com/rejmann/php-namespace-refactor.nvim/compare/v1.0.2...v1.0.3) (2026-11-16)
+
+
+### 🐛 Bug Fixes
+
+* answer willRenameFiles with an empty edit instead of null ([c84739b](https://github.com/rejmann/php-namespace-refactor.nvim/commit/c84739bbe3e6548fd111b0e722dcb56eae1115e4))
+* rename in place when the target is the same file ([740b308](https://github.com/rejmann/php-namespace-refactor.nvim/commit/740b308219a245ec1822db05d695f16f06bbc10e))
+* rename in place when the target is the same file ([666b1e3](https://github.com/rejmann/php-namespace-refactor.nvim/commit/666b1e30d67c7bbc70465b600c8120535dbdd19c))
+
 ## [1.0.2](https://github.com/rejmann/php-namespace-refactor.nvim/compare/v1.0.1...v1.0.2) (2026-10-23)
 
 
