@@ -160,6 +160,39 @@ describe('rename', function()
     assert.are.same({ prompt = 'New namespace: ', default = 'App\\Foo' }, input.calls[1].refs[1])
   end)
 
+  it('renames a class in place when its file already has the new name', function()
+    local root = fixture()
+    local file = root .. '/src/Foo/Bar.php'
+    -- Bar.php declares `class Baz`, referenced as Baz everywhere.
+    local consumers = { root .. '/src/Http/Controller.php', root .. '/src/Foo/Consumer.php' }
+    vim.fn.system({ 'sed', '-i', 's/\\bBar\\b/Baz/g', file, unpack(consumers) })
+    edit_at(file, '^class Baz')
+    input = answer({ 'Bar' })
+
+    rename_and_wait()
+
+    assert_contains(read(file), 'class Bar\n')
+    assert_contains(read(root .. '/src/Http/Controller.php'), 'use App\\Foo\\Bar;')
+    assert_contains(read(root .. '/src/Http/Controller.php'), 'private Bar $bar')
+    assert_contains(read(root .. '/src/Foo/Consumer.php'), 'private Bar $bar')
+    assert.stub(notify).was_not_called()
+  end)
+
+  it('fixes the namespace in place when the new namespace maps to the same directory', function()
+    local root = fixture()
+    local file = root .. '/src/Foo/Bar.php'
+    vim.fn.system({ 'sed', '-i', 's/App\\\\Foo/App\\\\Wrong/', file })
+    vim.fn.system({ 'sed', '-i', 's/App\\\\Foo\\\\Bar/App\\\\Wrong\\\\Bar/', root .. '/src/Http/Controller.php' })
+    edit_at(file, '^namespace')
+    input = answer({ 'App\\Foo' })
+
+    rename_and_wait()
+
+    assert_contains(read(file), 'namespace App\\Foo;')
+    assert_contains(read(root .. '/src/Http/Controller.php'), 'use App\\Foo\\Bar;')
+    assert.stub(notify).was_not_called()
+  end)
+
   it('asks again after an invalid name, showing the error', function()
     local root = fixture()
     edit_at(root .. '/src/Foo/Bar.php', '^class Bar')

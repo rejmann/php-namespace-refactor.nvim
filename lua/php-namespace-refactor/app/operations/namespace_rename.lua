@@ -33,7 +33,7 @@ function M.execute(file, new_namespace, opts)
   if not target then
     return false, err
   end
-  return move.move(file, target, opts)
+  return move.move_or_refactor(file, target, opts)
 end
 
 return M

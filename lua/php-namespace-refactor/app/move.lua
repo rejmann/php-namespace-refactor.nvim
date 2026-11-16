@@ -79,6 +79,23 @@ function M.move(old, new, opts)
   return true
 end
 
+---Moves `old` to `new` like move(), or, when they are the same file (a
+---rename that keeps the file where it is, e.g. its declarations didn't match
+---its path), refactors the project for the declarations of `old` in place.
+---@param old string
+---@param new string
+---@param opts? php_namespace_refactor.MoveOpts
+---@return boolean ok
+---@return string? err
+function M.move_or_refactor(old, new, opts)
+  old = absolute(old)
+  if old ~= absolute(new) then
+    return M.move(old, new, opts)
+  end
+  file_move.enqueue({ { old = old, new = old } }, opts and opts.on_done)
+  return true
+end
+
 ---`:PhpNamespaceRefactor move [{old}] {new}`: with one argument, moves the
 ---current buffer's file.
 ---@param args string[]
